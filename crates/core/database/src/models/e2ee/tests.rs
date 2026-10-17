@@ -770,3 +770,75 @@ async fn message_attachments() {
             .is_err()
     );
 }
+
+/// Contents, backed up keys, secrets and ciphertext never reach logs (BE-24)
+#[test]
+fn debug_redacted() {
+    use crate::{E2eeSecret, E2eeSecretId, Message, events::client::EventV1, tasks::ack::AckEvent};
+
+    let secret = "SECRET-MATERIAL";
+    let envelope = v0::EncryptedEnvelope {
+        v: 1,
+        algorithm: v0::E2EE_ALGORITHM_MEGOLM.to_string(),
+        session_id: "session".to_string(),
+        device_id: "01KAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
+        ciphertext: secret.to_string(),
+    };
+    let message = Message {
+        id: "01KBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
+        encrypted: Some(envelope.clone()),
+        ..Default::default()
+    };
+    let event: v0::Message = serde_json::from_value(serde_json::json!({
+        "_id": "01KBBBBBBBBBBBBBBBBBBBBBBB",
+        "channel": "01KCCCCCCCCCCCCCCCCCCCCCCC",
+        "author": "01KDDDDDDDDDDDDDDDDDDDDDDD",
+        "encrypted": envelope
+    }))
+    .unwrap();
+
+    let mut mailbox = to_device("A", "B", "txn");
+    mailbox.content = format!(r#"{{"ciphertext":"{secret}"}}"#);
+
+    let outputs = [
+        format!("{mailbox:?}"),
+        format!(
+            "{:?}",
+            E2eeBackupKey {
+                id: E2eeBackupKeyId {
+                    user: "user".to_string(),
+                    version: "version".to_string(),
+                    room: "room".to_string(),
+                    session: "session".to_string(),
+                },
+                first_message_index: 0,
+                forwarded_count: 0,
+                is_verified: false,
+                session_data: secret.to_string(),
+            }
+        ),
+        format!(
+            "{:?}",
+            E2eeSecret {
+                id: E2eeSecretId {
+                    user: "user".to_string(),
+                    secret_type: "m.megolm_backup.v1".to_string(),
+                },
+                content: secret.to_string(),
+            }
+        ),
+        // Logged by the ack task and by `EventV1::p` in debug builds
+        format!(
+            "{:?}",
+            AckEvent::ProcessMessage {
+                messages: vec![(None, message, vec![], false)],
+            }
+        ),
+        format!("{:?}", EventV1::Message(event)),
+    ];
+
+    for output in outputs {
+        assert!(!output.contains(secret), "{output}");
+        assert!(output.contains("<redacted>"), "{output}");
+    }
+}

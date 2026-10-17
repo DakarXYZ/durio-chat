@@ -6,6 +6,7 @@
 //!
 //! Contract v1: `stoat-crypto/fixtures/` (copied to `tests/fixtures/e2ee/`).
 use std::collections::HashMap;
+use std::fmt;
 
 use iso8601_timestamp::Timestamp;
 use serde_json::Value;
@@ -77,6 +78,29 @@ fn parse_e2ee_id(id: &str, sigil: char) -> Option<String> {
     }
 }
 
+/// Like `auto_derived!`, but without `Debug`: types carrying ciphertext, to-device
+/// contents or backed up keys implement it by hand and never print them (BE-24)
+macro_rules! auto_derived_redacted {
+    ( $( $item:item )+ ) => {
+        $(
+            #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+            #[cfg_attr(feature = "schemas", derive(JsonSchema))]
+            #[cfg_attr(feature = "utoipa", derive(ToSchema))]
+            #[derive(Clone, Eq, PartialEq)]
+            $item
+        )+
+    };
+}
+
+/// Printed in `Debug` output instead of secret material
+pub struct E2eeRedacted;
+
+impl fmt::Debug for E2eeRedacted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
 #[cfg(feature = "validator")]
 fn validate_envelope_algorithm(algorithm: &str) -> Result<(), ValidationError> {
     if algorithm == E2EE_ALGORITHM_MEGOLM {
@@ -87,32 +111,6 @@ fn validate_envelope_algorithm(algorithm: &str) -> Result<(), ValidationError> {
 }
 
 auto_derived!(
-    /// Encrypted message envelope (version 1)
-    ///
-    /// Unknown fields are rejected, the format only changes with a new version.
-    #[serde(deny_unknown_fields)]
-    #[cfg_attr(feature = "validator", derive(Validate))]
-    pub struct EncryptedEnvelope {
-        /// Envelope version
-        #[cfg_attr(feature = "validator", validate(range(min = 1, max = 1)))]
-        pub v: u32,
-        /// Encryption algorithm
-        #[cfg_attr(
-            feature = "validator",
-            validate(custom = "validate_envelope_algorithm")
-        )]
-        pub algorithm: String,
-        /// Megolm session id
-        #[cfg_attr(feature = "validator", validate(length(min = 1, max = 128)))]
-        pub session_id: String,
-        /// Sending device (session) id, only a hint
-        #[cfg_attr(feature = "validator", validate(length(equal = 26)))]
-        pub device_id: String,
-        /// Megolm ciphertext (upper bound is `max_envelope_bytes`)
-        #[cfg_attr(feature = "validator", validate(length(min = 1)))]
-        pub ciphertext: String,
-    }
-
     /// Encryption settings of a direct message or group
     ///
     /// Once enabled, encryption cannot be disabled.
@@ -218,16 +216,6 @@ auto_derived!(
         pub device_unused_fallback_key_types: Vec<String>,
     }
 
-    /// Send to-device messages
-    pub struct DataE2eeToDeviceSend {
-        /// Event type
-        #[serde(rename = "type")]
-        pub event_type: String,
-        /// User id → device id (or `*` for all devices) → content
-        #[cfg_attr(feature = "utoipa", schema(value_type = HashMap<String, HashMap<String, Object>>))]
-        pub messages: HashMap<String, HashMap<String, Value>>,
-    }
-
     /// To-device send response
     #[derive(Default)]
     pub struct E2eeToDeviceSendResponse {
@@ -243,22 +231,6 @@ auto_derived!(
         /// Maximum number of messages to fetch
         #[cfg_attr(feature = "validator", validate(range(min = 1, max = 100)))]
         pub limit: Option<i64>,
-    }
-
-    /// To-device message delivered to the current device
-    pub struct E2eeToDeviceMessage {
-        /// Unique Id
-        pub id: String,
-        /// Matrix-shaped id of the sending user
-        pub sender: String,
-        /// Id of the sending device
-        pub sender_device: String,
-        /// Event type
-        #[serde(rename = "type")]
-        pub event_type: String,
-        /// Message content
-        #[cfg_attr(feature = "utoipa", schema(value_type = Object))]
-        pub content: Value,
     }
 
     /// To-device fetch response, oldest messages first
@@ -317,19 +289,6 @@ auto_derived!(
         pub version: String,
     }
 
-    /// Encrypted Megolm session in the key backup
-    pub struct E2eeKeyBackupData {
-        /// Index of the first message that can be decrypted
-        pub first_message_index: u64,
-        /// Number of times this key was forwarded
-        pub forwarded_count: u64,
-        /// Whether the sending device was verified
-        pub is_verified: bool,
-        /// Encrypted session data
-        #[cfg_attr(feature = "utoipa", schema(value_type = Object))]
-        pub session_data: Value,
-    }
-
     /// Backed up sessions of a single room
     pub struct E2eeRoomKeyBackup {
         /// Session id → session
@@ -350,6 +309,117 @@ auto_derived!(
         pub etag: String,
     }
 );
+
+auto_derived_redacted!(
+    /// Encrypted message envelope (version 1)
+    ///
+    /// Unknown fields are rejected, the format only changes with a new version.
+    #[serde(deny_unknown_fields)]
+    #[cfg_attr(feature = "validator", derive(Validate))]
+    pub struct EncryptedEnvelope {
+        /// Envelope version
+        #[cfg_attr(feature = "validator", validate(range(min = 1, max = 1)))]
+        pub v: u32,
+        /// Encryption algorithm
+        #[cfg_attr(
+            feature = "validator",
+            validate(custom = "validate_envelope_algorithm")
+        )]
+        pub algorithm: String,
+        /// Megolm session id
+        #[cfg_attr(feature = "validator", validate(length(min = 1, max = 128)))]
+        pub session_id: String,
+        /// Sending device (session) id, only a hint
+        #[cfg_attr(feature = "validator", validate(length(equal = 26)))]
+        pub device_id: String,
+        /// Megolm ciphertext (upper bound is `max_envelope_bytes`)
+        #[cfg_attr(feature = "validator", validate(length(min = 1)))]
+        pub ciphertext: String,
+    }
+
+    /// Send to-device messages
+    pub struct DataE2eeToDeviceSend {
+        /// Event type
+        #[serde(rename = "type")]
+        pub event_type: String,
+        /// User id → device id (or `*` for all devices) → content
+        #[cfg_attr(feature = "utoipa", schema(value_type = HashMap<String, HashMap<String, Object>>))]
+        pub messages: HashMap<String, HashMap<String, Value>>,
+    }
+
+    /// To-device message delivered to the current device
+    pub struct E2eeToDeviceMessage {
+        /// Unique Id
+        pub id: String,
+        /// Matrix-shaped id of the sending user
+        pub sender: String,
+        /// Id of the sending device
+        pub sender_device: String,
+        /// Event type
+        #[serde(rename = "type")]
+        pub event_type: String,
+        /// Message content
+        #[cfg_attr(feature = "utoipa", schema(value_type = Object))]
+        pub content: Value,
+    }
+
+    /// Encrypted Megolm session in the key backup
+    pub struct E2eeKeyBackupData {
+        /// Index of the first message that can be decrypted
+        pub first_message_index: u64,
+        /// Number of times this key was forwarded
+        pub forwarded_count: u64,
+        /// Whether the sending device was verified
+        pub is_verified: bool,
+        /// Encrypted session data
+        #[cfg_attr(feature = "utoipa", schema(value_type = Object))]
+        pub session_data: Value,
+    }
+);
+
+impl fmt::Debug for EncryptedEnvelope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EncryptedEnvelope")
+            .field("v", &self.v)
+            .field("algorithm", &self.algorithm)
+            .field("session_id", &self.session_id)
+            .field("device_id", &self.device_id)
+            .field("ciphertext", &E2eeRedacted)
+            .finish()
+    }
+}
+
+impl fmt::Debug for DataE2eeToDeviceSend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DataE2eeToDeviceSend")
+            .field("event_type", &self.event_type)
+            .field("messages", &E2eeRedacted)
+            .finish()
+    }
+}
+
+impl fmt::Debug for E2eeToDeviceMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("E2eeToDeviceMessage")
+            .field("id", &self.id)
+            .field("sender", &self.sender)
+            .field("sender_device", &self.sender_device)
+            .field("event_type", &self.event_type)
+            .field("content", &E2eeRedacted)
+            .finish()
+    }
+}
+
+impl fmt::Debug for E2eeKeyBackupData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("E2eeKeyBackupData")
+            .field("first_message_index", &self.first_message_index)
+            .field("forwarded_count", &self.forwarded_count)
+            .field("is_verified", &self.is_verified)
+            .field("session_data", &E2eeRedacted)
+            .finish()
+    }
+}
 
 impl E2eeKeyBackupData {
     /// Whether this key should replace `existing` in the backup
@@ -415,5 +485,81 @@ mod tests {
         assert!(key(1, true, 0).is_better_than(&key(1, true, 1)));
         assert!(!key(1, true, 1).is_better_than(&key(1, true, 1)));
         assert!(!key(2, true, 0).is_better_than(&key(1, false, 9)));
+    }
+
+    /// Ciphertext, to-device contents and backed up keys never reach logs (BE-24)
+    #[test]
+    fn debug_redacted() {
+        let secret = "SECRET-CIPHERTEXT";
+        let envelope = EncryptedEnvelope {
+            v: 1,
+            algorithm: E2EE_ALGORITHM_MEGOLM.to_string(),
+            session_id: "session".to_string(),
+            device_id: "01KAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
+            ciphertext: secret.to_string(),
+        };
+
+        let message: crate::v0::Message = serde_json::from_value(serde_json::json!({
+            "_id": "01KAAAAAAAAAAAAAAAAAAAAAAA",
+            "channel": "01KBBBBBBBBBBBBBBBBBBBBBBB",
+            "author": "01KCCCCCCCCCCCCCCCCCCCCCCC",
+            "encrypted": envelope
+        }))
+        .unwrap();
+
+        let content = serde_json::json!({ "ciphertext": secret });
+        let outputs = [
+            format!("{envelope:?}"),
+            format!("{message:?}"),
+            format!(
+                "{:?}",
+                DataE2eeToDeviceSend {
+                    event_type: "m.room.encrypted".to_string(),
+                    messages: HashMap::from([(
+                        "@user:stoat.invalid".to_string(),
+                        HashMap::from([("DEVICE".to_string(), content.clone())])
+                    )]),
+                }
+            ),
+            format!(
+                "{:?}",
+                E2eeToDeviceFetchResponse {
+                    messages: vec![E2eeToDeviceMessage {
+                        id: "id".to_string(),
+                        sender: "@user:stoat.invalid".to_string(),
+                        sender_device: "DEVICE".to_string(),
+                        event_type: "m.room.encrypted".to_string(),
+                        content: content.clone(),
+                    }],
+                }
+            ),
+            format!(
+                "{:?}",
+                E2eeKeysBackup {
+                    rooms: HashMap::from([(
+                        "!room:stoat.invalid".to_string(),
+                        E2eeRoomKeyBackup {
+                            sessions: HashMap::from([(
+                                "session".to_string(),
+                                E2eeKeyBackupData {
+                                    first_message_index: 0,
+                                    forwarded_count: 0,
+                                    is_verified: true,
+                                    session_data: content.clone(),
+                                }
+                            )]),
+                        }
+                    )]),
+                }
+            ),
+        ];
+
+        for output in outputs {
+            assert!(!output.contains(secret), "{output}");
+            assert!(output.contains("<redacted>"), "{output}");
+        }
+
+        // Everything else is still there
+        assert!(format!("{envelope:?}").contains("session_id: \"session\""));
     }
 }

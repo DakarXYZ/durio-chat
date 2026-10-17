@@ -352,11 +352,11 @@ async fn listener(
                 };
 
                 let Some(mut event) = event else {
+                    // dur.io fork: the payload may carry ciphertext, only its size is reported
                     let err = format!(
-                        "Failed to deserialise event for {}: `{:?}`",
+                        "Failed to deserialise event for {}: {} bytes",
                         message.channel,
-                        message
-                            .value
+                        message.value.as_bytes().map_or(0, |bytes| bytes.len())
                     );
 
                     error!("{}", err);

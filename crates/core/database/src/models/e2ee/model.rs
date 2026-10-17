@@ -1,6 +1,8 @@
+use std::fmt;
 use std::sync::{LazyLock, Mutex};
 
 use iso8601_timestamp::Timestamp;
+use revolt_models::v0::E2eeRedacted;
 
 // Signed key objects and to-device contents are stored as JSON strings:
 // Matrix-shaped keys (`@<ulid>:stoat.invalid`, `ed25519:<device>`, `org.matrix.msgid`)
@@ -69,30 +71,6 @@ auto_derived!(
         pub fallback: bool,
     }
 
-    /// Message in the to-device mailbox of a device
-    pub struct E2eeToDeviceMessage {
-        /// Unique Id (ULID), the mailbox is served oldest first
-        #[serde(rename = "_id")]
-        pub id: String,
-        /// Recipient user
-        pub recipient_user: String,
-        /// Recipient device
-        pub recipient_device: String,
-        /// Sending user
-        pub sender_user: String,
-        /// Sending device
-        pub sender_device: String,
-        /// Transaction id of the sending request, for idempotency
-        pub txn_id: String,
-        /// Event type
-        #[serde(rename = "type")]
-        pub event_type: String,
-        /// Message content (JSON)
-        pub content: String,
-        /// When the message is dropped if not delivered (BSON date, TTL index)
-        pub expires_at: Timestamp,
-    }
-
     /// Key backup version of a user
     pub struct E2eeBackupVersion {
         /// Version id (ULID)
@@ -123,20 +101,6 @@ auto_derived!(
         pub session: String,
     }
 
-    /// Backed up Megolm session
-    pub struct E2eeBackupKey {
-        #[serde(rename = "_id")]
-        pub id: E2eeBackupKeyId,
-        /// Index of the first message that can be decrypted
-        pub first_message_index: u64,
-        /// Number of times this key was forwarded
-        pub forwarded_count: u64,
-        /// Whether the sending device was verified
-        pub is_verified: bool,
-        /// Encrypted session data (JSON)
-        pub session_data: String,
-    }
-
     /// Composite primary key of a secret storage entry
     #[derive(Hash)]
     pub struct E2eeSecretId {
@@ -146,15 +110,95 @@ auto_derived!(
         #[serde(rename = "type")]
         pub secret_type: String,
     }
-
-    /// Secret storage entry (opaque to the server)
-    pub struct E2eeSecret {
-        #[serde(rename = "_id")]
-        pub id: E2eeSecretId,
-        /// Content (JSON)
-        pub content: String,
-    }
 );
+
+// Without `Debug` derive: contents, backed up keys and secrets never reach logs (BE-24)
+
+/// Message in the to-device mailbox of a device
+#[derive(Serialize, Deserialize, Clone, Eq, PartialEq)]
+pub struct E2eeToDeviceMessage {
+    /// Unique Id (ULID), the mailbox is served oldest first
+    #[serde(rename = "_id")]
+    pub id: String,
+    /// Recipient user
+    pub recipient_user: String,
+    /// Recipient device
+    pub recipient_device: String,
+    /// Sending user
+    pub sender_user: String,
+    /// Sending device
+    pub sender_device: String,
+    /// Transaction id of the sending request, for idempotency
+    pub txn_id: String,
+    /// Event type
+    #[serde(rename = "type")]
+    pub event_type: String,
+    /// Message content (JSON)
+    pub content: String,
+    /// When the message is dropped if not delivered (BSON date, TTL index)
+    pub expires_at: Timestamp,
+}
+
+/// Backed up Megolm session
+#[derive(Serialize, Deserialize, Clone, Eq, PartialEq)]
+pub struct E2eeBackupKey {
+    #[serde(rename = "_id")]
+    pub id: E2eeBackupKeyId,
+    /// Index of the first message that can be decrypted
+    pub first_message_index: u64,
+    /// Number of times this key was forwarded
+    pub forwarded_count: u64,
+    /// Whether the sending device was verified
+    pub is_verified: bool,
+    /// Encrypted session data (JSON)
+    pub session_data: String,
+}
+
+/// Secret storage entry (opaque to the server)
+#[derive(Serialize, Deserialize, Clone, Eq, PartialEq)]
+pub struct E2eeSecret {
+    #[serde(rename = "_id")]
+    pub id: E2eeSecretId,
+    /// Content (JSON)
+    pub content: String,
+}
+
+impl fmt::Debug for E2eeToDeviceMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("E2eeToDeviceMessage")
+            .field("id", &self.id)
+            .field("recipient_user", &self.recipient_user)
+            .field("recipient_device", &self.recipient_device)
+            .field("sender_user", &self.sender_user)
+            .field("sender_device", &self.sender_device)
+            .field("txn_id", &self.txn_id)
+            .field("event_type", &self.event_type)
+            .field("content", &E2eeRedacted)
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
+impl fmt::Debug for E2eeBackupKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("E2eeBackupKey")
+            .field("id", &self.id)
+            .field("first_message_index", &self.first_message_index)
+            .field("forwarded_count", &self.forwarded_count)
+            .field("is_verified", &self.is_verified)
+            .field("session_data", &E2eeRedacted)
+            .finish()
+    }
+}
+
+impl fmt::Debug for E2eeSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("E2eeSecret")
+            .field("id", &self.id)
+            .field("content", &E2eeRedacted)
+            .finish()
+    }
+}
 
 /// Monotonic within the process, so messages queued in the same millisecond keep their order
 static TO_DEVICE_IDS: LazyLock<Mutex<ulid::Generator>> =
