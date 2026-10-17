@@ -91,15 +91,14 @@ mod tests {
             .await
             .unwrap();
         get(&harness, &session, "/e2ee/to_device").await;
-        assert_eq!(
-            harness
-                .db
-                .fetch_session(&session.id)
-                .await
-                .unwrap()
-                .last_seen,
-            recent
-        );
+        let stored = harness
+            .db
+            .fetch_session(&session.id)
+            .await
+            .unwrap()
+            .last_seen;
+        // MongoDB keeps milliseconds only
+        assert!(stored <= recent && stored > last_seen(31));
 
         // Stale: refreshed and listed with the sessions
         harness
