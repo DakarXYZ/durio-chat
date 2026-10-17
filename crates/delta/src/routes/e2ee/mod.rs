@@ -11,11 +11,14 @@ use revolt_rocket_okapi::revolt_okapi::openapi3::OpenApi;
 use rocket::Route;
 use serde_json::Value;
 
+mod backup_keys;
+mod backup_version;
 mod guard;
 mod keys_claim;
 mod keys_count;
 mod keys_query;
 mod keys_upload;
+mod secrets;
 mod to_device_ack;
 mod to_device_fetch;
 mod to_device_send;
@@ -34,6 +37,22 @@ pub fn routes() -> (Vec<Route>, OpenApi) {
         to_device_send::send,
         to_device_fetch::fetch,
         to_device_ack::ack,
+        backup_version::create,
+        backup_version::fetch_current,
+        backup_version::fetch,
+        backup_version::update,
+        backup_version::delete,
+        backup_keys::put_all,
+        backup_keys::put_room,
+        backup_keys::put_session,
+        backup_keys::get_all,
+        backup_keys::get_room,
+        backup_keys::get_session,
+        backup_keys::delete_all,
+        backup_keys::delete_room,
+        backup_keys::delete_session,
+        secrets::fetch,
+        secrets::store,
     ]
 }
 

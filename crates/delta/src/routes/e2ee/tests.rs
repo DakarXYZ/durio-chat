@@ -15,10 +15,26 @@ pub async fn request(
     path: &str,
     body: Option<Value>,
 ) -> (Status, Value) {
+    request_with(harness, method, session, path, body, vec![]).await
+}
+
+/// Send a request as `session` with extra headers
+pub async fn request_with(
+    harness: &TestHarness,
+    method: Method,
+    session: &Session,
+    path: &str,
+    body: Option<Value>,
+    headers: Vec<Header<'static>>,
+) -> (Status, Value) {
     let mut request = harness
         .client
         .req(method, path.to_string())
         .header(Header::new("x-session-token", session.token.clone()));
+
+    for header in headers {
+        request = request.header(header);
+    }
 
     if let Some(body) = body {
         request = request.header(ContentType::JSON).body(body.to_string());
@@ -158,7 +174,7 @@ pub async fn direct_message(harness: &TestHarness, a: &User, b: &User) {
 
 /// Every `/e2ee` route with a valid body
 fn all_routes(user_id: &str, device_id: &str) -> Vec<(Method, String, Option<Value>)> {
-    vec![
+    let mut routes = vec![
         (
             Method::Post,
             "/e2ee/keys/upload".to_string(),
@@ -191,7 +207,79 @@ fn all_routes(user_id: &str, device_id: &str) -> Vec<(Method, String, Option<Val
             "/e2ee/to_device/ack".to_string(),
             Some(json!({ "ids": ["01KZ0000000000000000000002"] })),
         ),
-    ]
+    ];
+
+    let version = "01KZ0000000000000000000001";
+    let room = "!01kccccccccccccccccccccccc:stoat.invalid";
+    let backup = json!({
+        "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+        "auth_data": { "public_key": "key", "signatures": {} }
+    });
+    let key = json!({
+        "first_message_index": 0,
+        "forwarded_count": 0,
+        "is_verified": false,
+        "session_data": {}
+    });
+
+    routes.extend([
+        (
+            Method::Post,
+            "/e2ee/backup/version".to_string(),
+            Some(backup.clone()),
+        ),
+        (Method::Get, "/e2ee/backup/version".to_string(), None),
+        (Method::Get, format!("/e2ee/backup/version/{version}"), None),
+        (
+            Method::Put,
+            format!("/e2ee/backup/version/{version}"),
+            Some(backup),
+        ),
+        (
+            Method::Delete,
+            format!("/e2ee/backup/version/{version}"),
+            None,
+        ),
+        (
+            Method::Put,
+            format!("/e2ee/backup/keys?version={version}"),
+            Some(json!({ "rooms": { room: { "sessions": { "S": key.clone() } } } })),
+        ),
+        (
+            Method::Put,
+            format!("/e2ee/backup/keys/{room}?version={version}"),
+            Some(json!({ "sessions": { "S": key.clone() } })),
+        ),
+        (
+            Method::Put,
+            format!("/e2ee/backup/keys/{room}/S?version={version}"),
+            Some(key),
+        ),
+    ]);
+
+    for path in [
+        format!("/e2ee/backup/keys?version={version}"),
+        format!("/e2ee/backup/keys/{room}?version={version}"),
+        format!("/e2ee/backup/keys/{room}/S?version={version}"),
+    ] {
+        routes.push((Method::Get, path.clone(), None));
+        routes.push((Method::Delete, path, None));
+    }
+
+    routes.extend([
+        (
+            Method::Get,
+            "/e2ee/secrets/m.megolm_backup.v1".to_string(),
+            None,
+        ),
+        (
+            Method::Put,
+            "/e2ee/secrets/m.megolm_backup.v1".to_string(),
+            Some(json!({})),
+        ),
+    ]);
+
+    routes
 }
 
 /// Bots have no session, hence no device
