@@ -268,3 +268,76 @@ async fn disabled_no_event() {
     assert_device_gone(&harness, &session.id).await;
     assert!(device_list_update(&mut events, &user.id, 1).await.is_none());
 }
+
+/// Deleting an account removes backup and secrets too, they belong to the user (BE-27)
+#[rocket::async_test]
+async fn user_delete() {
+    let harness = TestHarness::new().await;
+    let (_, session, mut user) = new_device_user(&harness).await;
+
+    let (status, body) = post(
+        &harness,
+        &session,
+        "/e2ee/backup/version",
+        json!({
+            "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+            "auth_data": { "public_key": "key", "signatures": {} }
+        }),
+    )
+    .await;
+    assert_eq!(status, Status::Ok);
+    let version = body["version"].as_str().unwrap().to_string();
+
+    let (status, _) = request(
+        &harness,
+        Method::Put,
+        &session,
+        &format!("/e2ee/backup/keys/!01kccccccccccccccccccccccc:stoat.invalid/S?version={version}"),
+        Some(json!({
+            "first_message_index": 0,
+            "forwarded_count": 0,
+            "is_verified": false,
+            "session_data": {}
+        })),
+    )
+    .await;
+    assert_eq!(status, Status::Ok);
+
+    let (status, _) = request(
+        &harness,
+        Method::Put,
+        &session,
+        "/e2ee/secrets/m.megolm_backup.v1",
+        Some(json!({ "encrypted": {} })),
+    )
+    .await;
+    assert_eq!(status, Status::NoContent);
+
+    user.delete(&harness.db).await.unwrap();
+
+    assert!(harness.db.fetch_e2ee_device(&session.id).await.is_err());
+    assert!(
+        harness
+            .db
+            .fetch_e2ee_backup_version(&user.id, None)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        harness
+            .db
+            .count_e2ee_backup_keys(&user.id, &version)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(
+        harness
+            .db
+            .fetch_e2ee_secret_types(&user.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}

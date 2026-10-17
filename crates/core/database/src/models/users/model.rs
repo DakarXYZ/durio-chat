@@ -893,6 +893,7 @@ impl User {
         db.clear_memberships(&self.id).await?;
         self.clear_relationships(db).await?;
         db.delete_messages_by_user(&self.id).await?;
+        db.delete_e2ee_user_data(&self.id).await?;
         self.mark_deleted(db).await?;
 
         Ok(())

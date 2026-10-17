@@ -715,6 +715,28 @@ impl AbstractE2ee for MongoDb {
             .collect())
     }
 
+    async fn delete_e2ee_user_data(&self, user_id: &str) -> Result<()> {
+        let devices = self.delete_e2ee_devices(user_id, None, None).await?;
+        self.delete_e2ee_device_data(&devices).await?;
+
+        // Keys of devices deleted earlier without the cascade are matched by user too
+        for (collection, filter) in [
+            (ONE_TIME_KEYS, doc! { "user_id": user_id }),
+            (FALLBACK_KEYS, doc! { "user_id": user_id }),
+            (TO_DEVICE, doc! { "recipient_user": user_id }),
+            (BACKUP_KEYS, doc! { "_id.user": user_id }),
+            (BACKUP_VERSIONS, doc! { "user_id": user_id }),
+            (SECRETS, doc! { "_id.user": user_id }),
+        ] {
+            self.col::<Document>(collection)
+                .delete_many(filter)
+                .await
+                .map_err(|_| create_database_error!("delete_many", collection))?;
+        }
+
+        Ok(())
+    }
+
     async fn set_channel_encryption(
         &self,
         channel_id: &str,

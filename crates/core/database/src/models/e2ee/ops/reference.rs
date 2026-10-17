@@ -449,6 +449,50 @@ impl AbstractE2ee for ReferenceDb {
             .collect())
     }
 
+    async fn delete_e2ee_user_data(&self, user_id: &str) -> Result<()> {
+        let devices = self.delete_e2ee_devices(user_id, None, None).await?;
+        self.delete_e2ee_device_data(&devices).await?;
+
+        // One lock at a time, in the documented order
+        self.e2ee
+            .one_time_keys
+            .lock()
+            .await
+            .retain(|_, key| key.user_id != user_id);
+
+        self.e2ee
+            .fallback_keys
+            .lock()
+            .await
+            .retain(|_, key| key.user_id != user_id);
+
+        self.e2ee
+            .to_device
+            .lock()
+            .await
+            .retain(|_, message| message.recipient_user != user_id);
+
+        self.e2ee
+            .backup_versions
+            .lock()
+            .await
+            .retain(|_, version| version.user_id != user_id);
+
+        self.e2ee
+            .backup_keys
+            .lock()
+            .await
+            .retain(|id, _| id.user != user_id);
+
+        self.e2ee
+            .secrets
+            .lock()
+            .await
+            .retain(|id, _| id.user != user_id);
+
+        Ok(())
+    }
+
     async fn set_channel_encryption(
         &self,
         channel_id: &str,

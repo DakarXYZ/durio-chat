@@ -154,6 +154,12 @@ pub trait AbstractE2ee: Sync + Send {
     /// Types of all secrets of a user
     async fn fetch_e2ee_secret_types(&self, user_id: &str) -> Result<Vec<String>>;
 
+    // ? Account deletion
+
+    /// Delete all E2EE data of a user: devices with their keys and mailboxes,
+    /// key backup (all versions) and secret storage
+    async fn delete_e2ee_user_data(&self, user_id: &str) -> Result<()>;
+
     // ? Channels
 
     /// Enable encryption of a direct message or group, only if not yet enabled

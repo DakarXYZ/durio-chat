@@ -527,6 +527,79 @@ async fn secrets() {
 }
 
 #[tokio::test]
+async fn user_data_deletion() {
+    let db = test_db("user_data_deletion").await;
+
+    db.insert_e2ee_device(&device("D1", "user")).await.unwrap();
+    db.insert_e2ee_device(&device("D2", "other")).await.unwrap();
+    db.insert_one_time_keys(vec![otk("D1", "A"), otk("ORPHAN", "B")])
+        .await
+        .unwrap();
+    db.set_fallback_key(&fallback("D1", "F")).await.unwrap();
+    db.insert_to_device(vec![
+        to_device("D1", "D2", "t1"),
+        to_device("D2", "D1", "t2"),
+    ])
+    .await
+    .unwrap();
+
+    db.create_e2ee_backup_version(&backup_version("V1", "user"))
+        .await
+        .unwrap();
+    db.create_e2ee_backup_version(&backup_version("V2", "user"))
+        .await
+        .unwrap();
+    db.create_e2ee_backup_version(&backup_version("OV", "other"))
+        .await
+        .unwrap();
+    db.upsert_e2ee_backup_keys("user", "V2", vec![backup_key("V2", "S", 0, false, 0)])
+        .await
+        .unwrap();
+    db.set_e2ee_secret("user", "m.megolm_backup.v1", "{}")
+        .await
+        .unwrap();
+    db.set_e2ee_secret("other", "m.megolm_backup.v1", "{}")
+        .await
+        .unwrap();
+
+    db.delete_e2ee_user_data("user").await.unwrap();
+
+    assert!(db.fetch_e2ee_device("D1").await.is_err());
+    assert!(db.count_one_time_keys("D1").await.unwrap().is_empty());
+    // Matched by user, not by device
+    assert!(db.count_one_time_keys("ORPHAN").await.unwrap().is_empty());
+    assert!(
+        db.fetch_unused_fallback_key_types("D1")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(db.fetch_to_device("D1", 10).await.unwrap().is_empty());
+    assert!(
+        db.fetch_e2ee_backup_version("user", None)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(db.count_e2ee_backup_keys("user", "V2").await.unwrap(), 0);
+    assert!(db.fetch_e2ee_secret_types("user").await.unwrap().is_empty());
+
+    // Other users keep everything
+    assert!(db.fetch_e2ee_device("D2").await.is_ok());
+    assert_eq!(db.fetch_to_device("D2", 10).await.unwrap().len(), 1);
+    assert!(
+        db.fetch_e2ee_backup_version("other", None)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        db.fetch_e2ee_secret_types("other").await.unwrap(),
+        ["m.megolm_backup.v1"]
+    );
+}
+
+#[tokio::test]
 async fn channel_encryption() {
     let db = test_db("channel_encryption").await;
 
