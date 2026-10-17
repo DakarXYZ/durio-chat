@@ -158,18 +158,22 @@ pub async fn new_device(harness: &TestHarness, account: &Account) -> Session {
 
 /// Direct message between two users, makes their devices visible to each other
 #[allow(clippy::disallowed_methods)]
-pub async fn direct_message(harness: &TestHarness, a: &User, b: &User) {
+pub async fn direct_message(harness: &TestHarness, a: &User, b: &User) -> Channel {
+    let channel = Channel::DirectMessage {
+        id: ulid::Ulid::new().to_string(),
+        active: true,
+        recipients: vec![a.id.clone(), b.id.clone()],
+        last_message_id: None,
+        encryption: None,
+    };
+
     harness
         .db
-        .insert_channel(&Channel::DirectMessage {
-            id: ulid::Ulid::new().to_string(),
-            active: true,
-            recipients: vec![a.id.clone(), b.id.clone()],
-            last_message_id: None,
-            encryption: None,
-        })
+        .insert_channel(&channel)
         .await
         .expect("`Channel`");
+
+    channel
 }
 
 /// Every `/e2ee` route with a valid body
@@ -206,6 +210,11 @@ fn all_routes(user_id: &str, device_id: &str) -> Vec<(Method, String, Option<Val
             Method::Post,
             "/e2ee/to_device/ack".to_string(),
             Some(json!({ "ids": ["01KZ0000000000000000000002"] })),
+        ),
+        (
+            Method::Put,
+            "/channels/01KZ0000000000000000000003/encryption".to_string(),
+            Some(json!({ "algorithm": "m.megolm.v1.aes-sha2" })),
         ),
     ];
 

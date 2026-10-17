@@ -330,7 +330,7 @@ impl Channel {
                     active: true, // show by default
                     recipients: vec![user_a.id.clone(), user_b.id.clone()],
                     last_message_id: None,
-                    encryption: None,
+                    encryption: Channel::default_dm_encryption(user_a, user_b).await,
                 }
             };
 

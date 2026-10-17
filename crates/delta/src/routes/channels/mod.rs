@@ -3,6 +3,7 @@ use rocket::Route;
 
 mod channel_ack;
 mod channel_delete;
+mod channel_encryption;
 mod channel_edit;
 mod channel_fetch;
 mod group_add_member;
@@ -36,6 +37,7 @@ pub fn routes() -> (Vec<Route>, OpenApi) {
         members_fetch::fetch_members,
         channel_delete::delete,
         channel_edit::edit,
+        channel_encryption::enable_encryption,
         invite_create::create_invite,
         message_send::message_send,
         message_query::query,
