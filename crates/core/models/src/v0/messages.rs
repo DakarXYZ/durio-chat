@@ -492,13 +492,21 @@ impl PushNotification {
             format!("{}/assets/logo.png", config.hosts.app)
         };
 
-        let image = msg.attachments.as_ref().and_then(|attachments| {
-            attachments
-                .first()
-                .map(|v| format!("{}/attachments/{}", config.hosts.autumn, v.id))
-        });
+        // dur.io fork: attachments of encrypted messages are encrypted blobs
+        let image = msg
+            .attachments
+            .as_ref()
+            .filter(|_| msg.encrypted.is_none())
+            .and_then(|attachments| {
+                attachments
+                    .first()
+                    .map(|v| format!("{}/attachments/{}", config.hosts.autumn, v.id))
+            });
 
-        let body = if let Some(ref sys) = msg.system {
+        // dur.io fork: encrypted messages never reach push providers as text
+        let body = if msg.encrypted.is_some() {
+            super::e2ee_push_body(author.as_ref().map_or("Revolt", |author| author.username()))
+        } else if let Some(ref sys) = msg.system {
             sys.clone().into()
         } else if let Some(ref text) = msg.content {
             text.clone()

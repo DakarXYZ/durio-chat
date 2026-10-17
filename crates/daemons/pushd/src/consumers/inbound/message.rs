@@ -37,7 +37,10 @@ impl Consumer for MessageConsumer {
     async fn consume(&self, delivery: Delivery) -> Result<()> {
         let mut payload: MessageSentPayload = serde_json::from_slice(&delivery.data)?;
 
-        if let Ok(body) = render_notification_content(&payload.notification, &self.db).await {
+        // dur.io fork: the body of an encrypted message is fixed, there is nothing to render
+        if payload.notification.message.encrypted.is_none()
+            && let Ok(body) = render_notification_content(&payload.notification, &self.db).await
+        {
             payload.notification.raw_body = Some(payload.notification.body);
             payload.notification.body = body;
         }

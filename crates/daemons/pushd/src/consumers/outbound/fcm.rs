@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use super::encrypted::with_envelope;
 use super::routing::{canonical_api_url, with_routing};
 use crate::utils::Consumer;
 use anyhow::{bail, Result};
@@ -37,6 +38,8 @@ pub enum NotificationData {
         channel: String,
         author: String,
         author_name: String,
+        /// End-to-end encrypted, `body` is a fixed text (dur.io fork)
+        encrypted: bool,
     },
     DmCallStartEnd {
         initiator_id: String,
@@ -89,7 +92,11 @@ impl NotificationData {
                 channel,
                 author,
                 author_name,
+                encrypted,
             } => {
+                if encrypted {
+                    data.insert("encrypted".to_string(), Value::String("1".to_string()));
+                }
                 data.insert("message".to_string(), Value::String(message));
                 data.insert("body".to_string(), Value::String(body));
                 data.insert("image".to_string(), Value::String(image));
@@ -244,6 +251,7 @@ impl Consumer for FcmOutboundConsumer {
             }
 
             PayloadKind::MessageNotification(alert) => {
+                let envelope = alert.message.encrypted;
                 let data = NotificationData::Message {
                     message: alert.message.id,
                     body: alert.body,
@@ -251,14 +259,14 @@ impl Consumer for FcmOutboundConsumer {
                     channel: alert.message.channel,
                     author: alert.message.author,
                     author_name: alert.author,
+                    encrypted: envelope.is_some(),
                 };
 
                 let msg = Message {
                     token: Some(payload.token),
-                    data: Some(with_routing(
-                        data.into_payload(),
-                        &instance,
-                        &payload.user_id,
+                    data: Some(with_envelope(
+                        with_routing(data.into_payload(), &instance, &payload.user_id),
+                        envelope.as_ref(),
                     )),
                     ..Default::default()
                 };

@@ -34,6 +34,11 @@ pub const E2EE_BACKUP_ALGORITHMS: [&str; 1] = ["m.megolm_backup.v1.curve25519-ae
 /// Server name used in Matrix-shaped identifiers
 pub const E2EE_SERVER_NAME: &str = "stoat.invalid";
 
+/// Push text of an encrypted message, the server never knows the content
+pub fn e2ee_push_body(author: &str) -> String {
+    format!("New message from {author}")
+}
+
 /// Matrix-shaped user id: `@<lowercase ulid>:stoat.invalid`
 pub fn e2ee_user_id(user_id: &str) -> String {
     format!("@{}:{E2EE_SERVER_NAME}", user_id.to_lowercase())

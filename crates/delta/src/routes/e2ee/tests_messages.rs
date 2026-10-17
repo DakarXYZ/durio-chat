@@ -25,7 +25,6 @@ pub struct EncryptedDm {
     pub session: Session,
     pub user: User,
     pub other_session: Session,
-    pub other: User,
     pub channel: Channel,
 }
 
@@ -42,7 +41,6 @@ pub async fn encrypted_dm(harness: &TestHarness) -> EncryptedDm {
         session,
         user,
         other_session,
-        other,
         channel,
     }
 }
@@ -579,4 +577,45 @@ async fn encrypted_attachment_limit() {
     .await;
     assert_eq!(status, Status::Ok, "{body}");
     assert_eq!(body["attachments"].as_array().unwrap().len(), limit);
+}
+
+/// Push notifications of encrypted messages carry no text and no attachment link
+#[rocket::async_test]
+async fn push_without_text() {
+    let harness = TestHarness::new().await;
+    let dm = encrypted_dm(&harness).await;
+    let file = attachment(&harness, &dm.user, true).await;
+
+    let (status, body) = send(
+        &harness,
+        &dm.session,
+        dm.channel.id(),
+        json!({
+            "encrypted": envelope(&dm.session.id, "cipher"),
+            "attachments": [file]
+        }),
+    )
+    .await;
+    assert_eq!(status, Status::Ok);
+
+    let stored = harness
+        .db
+        .fetch_message(body["_id"].as_str().unwrap())
+        .await
+        .unwrap();
+    let author: v0::User = dm.user.clone().into(&harness.db, None).await;
+    let notification = v0::PushNotification::from(
+        stored.into_model(None, None),
+        Some(v0::MessageAuthor::User(&author)),
+        dm.channel.clone().into(),
+    )
+    .await;
+
+    assert_eq!(
+        notification.body,
+        format!("New message from {}", dm.user.username)
+    );
+    assert!(notification.image.is_none());
+    assert!(notification.raw_body.is_none());
+    assert!(notification.message.encrypted.is_some());
 }

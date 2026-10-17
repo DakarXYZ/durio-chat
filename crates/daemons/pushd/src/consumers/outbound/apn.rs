@@ -1,5 +1,6 @@
 use std::{borrow::Cow, collections::BTreeMap, io::Cursor, sync::Arc};
 
+use super::encrypted::fit_apn_notification;
 use crate::utils::Consumer;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -302,6 +303,8 @@ impl Consumer for ApnsOutboundConsumer {
             }
 
             PayloadKind::MessageNotification(alert) => {
+                // dur.io fork: a large envelope does not fit into APNs
+                let alert = fit_apn_notification(&alert);
                 let title = self.format_title(&alert);
                 let apn_payload = MessagePayload {
                     aps: APS {
