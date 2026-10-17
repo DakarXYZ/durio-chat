@@ -249,6 +249,24 @@ pub enum ErrorType {
 
     TotpAlreadyEnabled,
     DisallowedMFAMethod,
+
+    // ? End-to-end encryption errors (dur.io fork)
+    /// Plain content (or a missing envelope) in an encrypted channel, or the reverse
+    EncryptedChannelViolation,
+    SearchUnavailableInEncryptedChannel,
+    /// `features.e2ee.enabled` is off
+    E2eeDisabled,
+    DeviceNotFound,
+    /// Only direct messages and groups without bots or webhooks can be encrypted
+    NotEncryptable,
+    AlreadyEncrypted,
+    /// The recipient device mailbox is full
+    TooManyPendingToDevice,
+    /// Device keys are immutable, a new device means a new session
+    DeviceKeysMismatch,
+    BackupVersionMismatch {
+        current_version: String,
+    },
 }
 
 #[macro_export]
@@ -337,5 +355,38 @@ mod tests {
     fn use_macro_to_construct_complex_error() {
         let error = create_error!(LabelMe);
         assert!(matches!(error.error_type, ErrorType::LabelMe));
+    }
+    #[cfg(all(feature = "serde", feature = "axum"))]
+    #[test]
+    fn e2ee_errors() {
+        use axum::{http::StatusCode, response::IntoResponse};
+
+        let error = create_error!(BackupVersionMismatch {
+            current_version: "01KZ0000000000000000000001".to_string()
+        });
+        assert_eq!(
+            serde_json::to_value(&error.error_type).unwrap(),
+            serde_json::json!({
+                "type": "BackupVersionMismatch",
+                "current_version": "01KZ0000000000000000000001"
+            })
+        );
+
+        for (error, status) in [
+            (create_error!(E2eeDisabled), StatusCode::NOT_FOUND),
+            (
+                create_error!(EncryptedChannelViolation),
+                StatusCode::BAD_REQUEST,
+            ),
+            (create_error!(AlreadyEncrypted), StatusCode::CONFLICT),
+            (create_error!(DeviceKeysMismatch), StatusCode::CONFLICT),
+            (
+                create_error!(TooManyPendingToDevice),
+                StatusCode::TOO_MANY_REQUESTS,
+            ),
+            (error, StatusCode::CONFLICT),
+        ] {
+            assert_eq!(error.into_response().status(), status);
+        }
     }
 }

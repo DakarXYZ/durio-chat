@@ -128,6 +128,16 @@ impl<'r> Responder<'r, 'static> for Error {
             ErrorType::DisallowedMFAMethod => Status::BadRequest,
             ErrorType::OperationFailed => Status::InternalServerError,
             ErrorType::IncorrectData { .. } => Status::BadRequest,
+
+            ErrorType::EncryptedChannelViolation => Status::BadRequest,
+            ErrorType::SearchUnavailableInEncryptedChannel => Status::BadRequest,
+            ErrorType::E2eeDisabled => Status::NotFound,
+            ErrorType::DeviceNotFound => Status::NotFound,
+            ErrorType::NotEncryptable => Status::BadRequest,
+            ErrorType::AlreadyEncrypted => Status::Conflict,
+            ErrorType::TooManyPendingToDevice => Status::TooManyRequests,
+            ErrorType::DeviceKeysMismatch => Status::Conflict,
+            ErrorType::BackupVersionMismatch { .. } => Status::Conflict,
         };
 
         // Serialize the error data structure into JSON.

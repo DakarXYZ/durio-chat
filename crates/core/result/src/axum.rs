@@ -123,6 +123,16 @@ impl IntoResponse for Error {
             ErrorType::DisallowedMFAMethod => StatusCode::BAD_REQUEST,
             ErrorType::OperationFailed => StatusCode::INTERNAL_SERVER_ERROR,
             ErrorType::IncorrectData { .. } => StatusCode::BAD_REQUEST,
+
+            ErrorType::EncryptedChannelViolation => StatusCode::BAD_REQUEST,
+            ErrorType::SearchUnavailableInEncryptedChannel => StatusCode::BAD_REQUEST,
+            ErrorType::E2eeDisabled => StatusCode::NOT_FOUND,
+            ErrorType::DeviceNotFound => StatusCode::NOT_FOUND,
+            ErrorType::NotEncryptable => StatusCode::BAD_REQUEST,
+            ErrorType::AlreadyEncrypted => StatusCode::CONFLICT,
+            ErrorType::TooManyPendingToDevice => StatusCode::TOO_MANY_REQUESTS,
+            ErrorType::DeviceKeysMismatch => StatusCode::CONFLICT,
+            ErrorType::BackupVersionMismatch { .. } => StatusCode::CONFLICT,
         };
 
         let mut response = (status, Json(&self)).into_response();
