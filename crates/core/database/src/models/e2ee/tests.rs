@@ -585,3 +585,40 @@ async fn channel_encryption() {
         channel => panic!("not encrypted: {channel:?}"),
     }
 }
+
+#[tokio::test]
+async fn to_device_idempotency() {
+    let db = test_db("to_device_idempotency").await;
+
+    let first = to_device("R", "S", "t1");
+    db.insert_to_device(vec![first.clone(), to_device("R2", "S", "t1")])
+        .await
+        .unwrap();
+
+    // Retried request: new ids, same (sender_device, txn_id, recipient_device)
+    db.insert_to_device(vec![
+        to_device("R", "S", "t1"),
+        to_device("R2", "S", "t1"),
+        to_device("R3", "S", "t1"),
+    ])
+    .await
+    .unwrap();
+
+    let mailbox = db.fetch_to_device("R", 10).await.unwrap();
+    assert_eq!(mailbox.len(), 1);
+    assert_eq!(mailbox[0].id, first.id);
+    assert_eq!(db.fetch_to_device("R2", 10).await.unwrap().len(), 1);
+    // The part that failed the first time is delivered by the retry
+    assert_eq!(db.fetch_to_device("R3", 10).await.unwrap().len(), 1);
+
+    // expires_at must be a BSON date, TTL indexes ignore anything else
+    #[cfg(feature = "mongodb")]
+    if let Database::MongoDb(mongo) = &db {
+        let dates = mongo
+            .col::<bson::Document>("e2ee_to_device")
+            .count_documents(doc! { "expires_at": { "$type": "date" } })
+            .await
+            .unwrap();
+        assert_eq!(dates, 3);
+    }
+}

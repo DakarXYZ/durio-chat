@@ -2,6 +2,7 @@ use crate::MongoDb;
 
 use super::AbstractMigrations;
 
+mod e2ee;
 mod init;
 mod scripts;
 

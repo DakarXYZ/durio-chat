@@ -258,6 +258,8 @@ pub async fn create_database(db: &MongoDb) {
     .await
     .expect("Failed to create attachment_hashes index.");
 
+    super::e2ee::create_e2ee_collections(&db).await;
+
     db.collection("migrations")
         .insert_one(doc! {
             "_id": 0_i32,
