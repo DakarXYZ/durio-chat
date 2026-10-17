@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use super::routing::{canonical_api_url, with_routing};
 use crate::utils::Consumer;
 use anyhow::{bail, Result};
 use async_trait::async_trait;
@@ -165,6 +166,7 @@ impl Consumer for FcmOutboundConsumer {
 
     async fn consume(&self, delivery: Delivery) -> Result<()> {
         let payload: PayloadToService = serde_json::from_slice(&delivery.data)?;
+        let instance = canonical_api_url(&config().await.hosts.api);
 
         #[allow(clippy::needless_late_init)]
         let resp: Result<Message, FcmError>;
@@ -185,7 +187,11 @@ impl Consumer for FcmOutboundConsumer {
 
                 let msg = Message {
                     token: Some(payload.token),
-                    data: Some(data.into_payload()),
+                    data: Some(with_routing(
+                        data.into_payload(),
+                        &instance,
+                        &payload.user_id,
+                    )),
                     ..Default::default()
                 };
 
@@ -207,7 +213,11 @@ impl Consumer for FcmOutboundConsumer {
 
                 let msg = Message {
                     token: Some(payload.token),
-                    data: Some(data.into_payload()),
+                    data: Some(with_routing(
+                        data.into_payload(),
+                        &instance,
+                        &payload.user_id,
+                    )),
                     ..Default::default()
                 };
 
@@ -222,7 +232,11 @@ impl Consumer for FcmOutboundConsumer {
 
                 let msg = Message {
                     token: Some(payload.token),
-                    data: Some(data.into_payload()),
+                    data: Some(with_routing(
+                        data.into_payload(),
+                        &instance,
+                        &payload.user_id,
+                    )),
                     ..Default::default()
                 };
 
@@ -241,7 +255,11 @@ impl Consumer for FcmOutboundConsumer {
 
                 let msg = Message {
                     token: Some(payload.token),
-                    data: Some(data.into_payload()),
+                    data: Some(with_routing(
+                        data.into_payload(),
+                        &instance,
+                        &payload.user_id,
+                    )),
                     ..Default::default()
                 };
 
@@ -259,7 +277,11 @@ impl Consumer for FcmOutboundConsumer {
 
                 let msg = Message {
                     token: Some(payload.token),
-                    data: Some(data.into_payload()),
+                    data: Some(with_routing(
+                        data.into_payload(),
+                        &instance,
+                        &payload.user_id,
+                    )),
                     ..Default::default()
                 };
 
