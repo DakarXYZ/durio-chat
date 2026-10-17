@@ -41,16 +41,11 @@ impl AbstractUsers for ReferenceDb {
     }
 
     /// Fetch multiple users by their ids
+    ///
+    /// Unknown ids are skipped like in MongoDB (`$in`), e.g. the system author.
     async fn fetch_users<'a>(&self, ids: &'a [String]) -> Result<Vec<User>> {
         let users = self.users.lock().await;
-        ids.iter()
-            .map(|id| {
-                users
-                    .get(id)
-                    .cloned()
-                    .ok_or_else(|| create_error!(NotFound))
-            })
-            .collect()
+        Ok(ids.iter().filter_map(|id| users.get(id).cloned()).collect())
     }
 
     /// Fetch all discriminators in use for a username
