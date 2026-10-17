@@ -14,7 +14,7 @@ use revolt_presence::filter_online;
 use revolt_result::Result;
 
 use super::{
-    e2ee::private_e2ee_filter,
+    e2ee::{channel_peers, private_e2ee_filter},
     state::{Cache, State},
 };
 
@@ -470,6 +470,11 @@ impl State {
             EventV1::ChannelCreate(channel) => {
                 let id = channel.id().to_string();
                 self.insert_subscription(id.clone()).await;
+
+                // Presence and E2EE device updates of the other participants.
+                for peer in channel_peers(channel, &self.cache.user_id) {
+                    self.insert_subscription(peer.clone()).await;
+                }
                 self.cache.channels.insert(id, channel.clone().into());
             }
             EventV1::ChannelUpdate {

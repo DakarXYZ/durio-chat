@@ -109,7 +109,7 @@ mod tests {
     use revolt_models::v0;
 
     use super::private_e2ee_filter;
-    use crate::events::state::State;
+    use crate::events::state::{State, SubscriptionStateChange};
 
     fn to_device(recipient_device: &str) -> EventV1 {
         EventV1::E2eeToDevice {
@@ -338,5 +338,33 @@ mod tests {
         };
         assert!(delivered(&mut me, &db, leave).await);
         assert!(!delivered(&mut me, &db, device_list("PEER")).await);
+    }
+
+    #[tokio::test]
+    async fn new_dm_and_group_subscribe_to_peers() {
+        let db = db().await;
+        let mut me = state(user("ME", vec![]), "SESSION").await;
+
+        let event = EventV1::ChannelCreate(dm("DM", &["PEER", "ME"]).into());
+        assert!(delivered(&mut me, &db, event).await);
+
+        let event = EventV1::ChannelCreate(group("GROUP", &["OWNER", "ME", "MEMBER"]).into());
+        assert!(delivered(&mut me, &db, event).await);
+
+        let subscribed = me.subscribed.read().await.clone();
+        for topic in ["DM", "PEER", "GROUP", "OWNER", "MEMBER"] {
+            assert!(subscribed.contains(topic), "{topic} should be subscribed");
+        }
+
+        for peer in ["PEER", "OWNER", "MEMBER"] {
+            assert!(delivered(&mut me, &db, device_list(peer)).await);
+        }
+
+        // Flushed as an incremental change, so the socket subscribes without reconnecting.
+        let SubscriptionStateChange::Change { add, remove } = me.apply_state().await else {
+            panic!("expected a subscription change");
+        };
+        assert!(add.contains(&"PEER".to_string()) && add.contains(&"MEMBER".to_string()));
+        assert!(remove.is_empty());
     }
 }
