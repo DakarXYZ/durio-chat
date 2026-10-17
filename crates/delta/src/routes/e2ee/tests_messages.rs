@@ -2,7 +2,7 @@
 use std::time::Duration;
 
 use revolt_database::{
-    Channel, File, Message, Metadata, Session, User, events::client::EventV1,
+    Channel, File, Message, Metadata, Session, SnapshotContent, User, events::client::EventV1,
     util::e2ee::legacy_placeholder,
 };
 use revolt_models::v0;
@@ -897,4 +897,67 @@ async fn webhooks_kept_out() {
     )
     .await;
     assert_violation(status, response);
+}
+
+/// Snapshots of a reported message, as stored for moderators
+async fn snapshot_of(harness: &TestHarness, message_id: &str) -> Message {
+    let content = match &harness.db {
+        revolt_database::Database::Reference(db) => db
+            .safety_snapshots
+            .lock()
+            .await
+            .values()
+            .map(|snapshot| snapshot.content.clone())
+            .find(|content| {
+                matches!(content, SnapshotContent::Message { message, .. } if message.id == message_id)
+            }),
+        revolt_database::Database::MongoDb(db) => db
+            .col::<revolt_database::Snapshot>("safety_snapshots")
+            .find_one(revolt_database::mongodb::bson::doc! { "content._id": message_id })
+            .await
+            .unwrap()
+            .map(|snapshot| snapshot.content),
+    };
+
+    match content.expect("snapshot") {
+        SnapshotContent::Message { message, .. } => message,
+        _ => unreachable!(),
+    }
+}
+
+/// A reported encrypted message is kept as ciphertext, moderators see it is encrypted
+#[rocket::async_test]
+async fn report_encrypted_message() {
+    let harness = TestHarness::new().await;
+    let dm = encrypted_dm(&harness).await;
+
+    let sent = envelope(&dm.session.id, "cipher");
+    let (status, message) = send(
+        &harness,
+        &dm.session,
+        dm.channel.id(),
+        json!({ "encrypted": sent }),
+    )
+    .await;
+    assert_eq!(status, Status::Ok);
+    let id = message["_id"].as_str().unwrap();
+
+    let (status, body) = request(
+        &harness,
+        Method::Post,
+        &dm.other_session,
+        "/safety/report",
+        Some(json!({
+            "content": { "type": "Message", "id": id, "report_reason": "NoneSpecified" }
+        })),
+    )
+    .await;
+    assert_eq!(status, Status::NoContent, "{body}");
+
+    let snapshot = snapshot_of(&harness, id).await;
+    assert!(snapshot.content.is_none());
+    assert_eq!(
+        snapshot.encrypted,
+        Some(serde_json::from_value::<v0::EncryptedEnvelope>(sent).unwrap())
+    );
 }
