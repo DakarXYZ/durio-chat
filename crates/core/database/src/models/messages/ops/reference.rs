@@ -62,7 +62,7 @@ impl AbstractMessages for ReferenceDb {
                 }
 
                 if let Some(pinned) = query.filter.pinned {
-                    if message.pinned.unwrap_or_default() == pinned {
+                    if message.pinned.unwrap_or_default() != pinned {
                         return false;
                     }
                 }
