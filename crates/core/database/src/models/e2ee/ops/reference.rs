@@ -1,15 +1,32 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+
+use futures::lock::Mutex;
 
 use revolt_models::v0::ChannelEncryption;
 use revolt_result::Result;
 
 use crate::{
-    AbstractE2ee, Channel, E2eeBackupKey, E2eeBackupVersion, E2eeClaimedKey, E2eeDevice,
-    E2eeFallbackKey, E2eeOneTimeKey, E2eeSecret, E2eeSecretId, E2eeToDeviceMessage, ReferenceDb,
+    AbstractE2ee, Channel, E2eeBackupKey, E2eeBackupKeyId, E2eeBackupVersion, E2eeClaimedKey,
+    E2eeDevice, E2eeFallbackKey, E2eeOneTimeKey, E2eeSecret, E2eeSecretId, E2eeToDeviceMessage,
+    ReferenceDb,
 };
 
-// Locks are taken one at a time, in the order
-// e2ee_devices → e2ee_one_time_keys → e2ee_fallback_keys → e2ee_to_device
+/// E2EE collections of the reference database
+///
+/// Locks are taken one at a time, in the order
+/// devices → one_time_keys → fallback_keys → to_device.
+#[derive(Default, Debug)]
+pub struct E2eeReferenceDb {
+    pub devices: Mutex<HashMap<String, E2eeDevice>>,
+    /// Ordered like the `_id` sort of a claim in MongoDB
+    pub one_time_keys: Mutex<BTreeMap<String, E2eeOneTimeKey>>,
+    pub fallback_keys: Mutex<HashMap<String, E2eeFallbackKey>>,
+    /// Ordered by ULID like the mailbox index in MongoDB
+    pub to_device: Mutex<BTreeMap<String, E2eeToDeviceMessage>>,
+    pub backup_versions: Mutex<HashMap<String, E2eeBackupVersion>>,
+    pub backup_keys: Mutex<HashMap<E2eeBackupKeyId, E2eeBackupKey>>,
+    pub secrets: Mutex<HashMap<E2eeSecretId, E2eeSecret>>,
+}
 
 fn matches_key(
     key: &E2eeBackupKey,
@@ -27,7 +44,7 @@ fn matches_key(
 #[async_trait]
 impl AbstractE2ee for ReferenceDb {
     async fn insert_e2ee_device(&self, device: &E2eeDevice) -> Result<bool> {
-        let mut devices = self.e2ee_devices.lock().await;
+        let mut devices = self.e2ee.devices.lock().await;
         if devices.contains_key(&device.id) {
             Ok(false)
         } else {
@@ -37,7 +54,7 @@ impl AbstractE2ee for ReferenceDb {
     }
 
     async fn fetch_e2ee_device(&self, device_id: &str) -> Result<E2eeDevice> {
-        let devices = self.e2ee_devices.lock().await;
+        let devices = self.e2ee.devices.lock().await;
         devices
             .get(device_id)
             .cloned()
@@ -45,7 +62,7 @@ impl AbstractE2ee for ReferenceDb {
     }
 
     async fn fetch_e2ee_devices(&self, user_ids: &[String]) -> Result<Vec<E2eeDevice>> {
-        let devices = self.e2ee_devices.lock().await;
+        let devices = self.e2ee.devices.lock().await;
         Ok(devices
             .values()
             .filter(|device| user_ids.contains(&device.user_id))
@@ -59,7 +76,7 @@ impl AbstractE2ee for ReferenceDb {
         only: Option<&str>,
         except: Option<&str>,
     ) -> Result<Vec<String>> {
-        let mut devices = self.e2ee_devices.lock().await;
+        let mut devices = self.e2ee.devices.lock().await;
         let ids: Vec<String> = devices
             .values()
             .filter(|device| {
@@ -78,17 +95,20 @@ impl AbstractE2ee for ReferenceDb {
     }
 
     async fn delete_e2ee_device_data(&self, device_ids: &[String]) -> Result<()> {
-        self.e2ee_one_time_keys
+        self.e2ee
+            .one_time_keys
             .lock()
             .await
             .retain(|_, key| !device_ids.contains(&key.device_id));
 
-        self.e2ee_fallback_keys
+        self.e2ee
+            .fallback_keys
             .lock()
             .await
             .retain(|id, _| !device_ids.contains(id));
 
-        self.e2ee_to_device
+        self.e2ee
+            .to_device
             .lock()
             .await
             .retain(|_, message| !device_ids.contains(&message.recipient_device));
@@ -97,7 +117,7 @@ impl AbstractE2ee for ReferenceDb {
     }
 
     async fn insert_one_time_keys(&self, keys: Vec<E2eeOneTimeKey>) -> Result<()> {
-        let mut otks = self.e2ee_one_time_keys.lock().await;
+        let mut otks = self.e2ee.one_time_keys.lock().await;
         for key in keys {
             otks.entry(key.id.clone()).or_insert(key);
         }
@@ -111,7 +131,7 @@ impl AbstractE2ee for ReferenceDb {
         algorithm: &str,
     ) -> Result<Option<E2eeClaimedKey>> {
         {
-            let mut otks = self.e2ee_one_time_keys.lock().await;
+            let mut otks = self.e2ee.one_time_keys.lock().await;
             let id = otks
                 .values()
                 .find(|key| key.device_id == device_id && key.algorithm == algorithm)
@@ -127,7 +147,7 @@ impl AbstractE2ee for ReferenceDb {
             }
         }
 
-        let mut fallback_keys = self.e2ee_fallback_keys.lock().await;
+        let mut fallback_keys = self.e2ee.fallback_keys.lock().await;
         Ok(fallback_keys
             .get_mut(device_id)
             .filter(|key| key.algorithm == algorithm)
@@ -143,7 +163,7 @@ impl AbstractE2ee for ReferenceDb {
     }
 
     async fn count_one_time_keys(&self, device_id: &str) -> Result<HashMap<String, usize>> {
-        let otks = self.e2ee_one_time_keys.lock().await;
+        let otks = self.e2ee.one_time_keys.lock().await;
         let mut counts = HashMap::new();
         for key in otks.values().filter(|key| key.device_id == device_id) {
             *counts.entry(key.algorithm.clone()).or_default() += 1;
@@ -153,7 +173,7 @@ impl AbstractE2ee for ReferenceDb {
     }
 
     async fn set_fallback_key(&self, key: &E2eeFallbackKey) -> Result<()> {
-        let mut fallback_keys = self.e2ee_fallback_keys.lock().await;
+        let mut fallback_keys = self.e2ee.fallback_keys.lock().await;
         if fallback_keys
             .get(&key.id)
             .is_none_or(|existing| existing.key_id != key.key_id)
@@ -165,7 +185,7 @@ impl AbstractE2ee for ReferenceDb {
     }
 
     async fn fetch_unused_fallback_key_types(&self, device_id: &str) -> Result<Vec<String>> {
-        let fallback_keys = self.e2ee_fallback_keys.lock().await;
+        let fallback_keys = self.e2ee.fallback_keys.lock().await;
         Ok(fallback_keys
             .get(device_id)
             .filter(|key| !key.used)
@@ -175,7 +195,7 @@ impl AbstractE2ee for ReferenceDb {
     }
 
     async fn insert_to_device(&self, messages: Vec<E2eeToDeviceMessage>) -> Result<()> {
-        let mut mailbox = self.e2ee_to_device.lock().await;
+        let mut mailbox = self.e2ee.to_device.lock().await;
         for message in messages {
             let duplicate = mailbox.values().any(|existing| {
                 existing.id == message.id
@@ -197,7 +217,7 @@ impl AbstractE2ee for ReferenceDb {
         device_id: &str,
         limit: usize,
     ) -> Result<Vec<E2eeToDeviceMessage>> {
-        let mailbox = self.e2ee_to_device.lock().await;
+        let mailbox = self.e2ee.to_device.lock().await;
         Ok(mailbox
             .values()
             .filter(|message| message.recipient_device == device_id)
@@ -207,7 +227,7 @@ impl AbstractE2ee for ReferenceDb {
     }
 
     async fn ack_to_device(&self, device_id: &str, ids: &[String]) -> Result<()> {
-        let mut mailbox = self.e2ee_to_device.lock().await;
+        let mut mailbox = self.e2ee.to_device.lock().await;
         for id in ids {
             if mailbox
                 .get(id)
@@ -221,7 +241,7 @@ impl AbstractE2ee for ReferenceDb {
     }
 
     async fn count_pending_to_device(&self, device_ids: &[String]) -> Result<HashMap<String, u64>> {
-        let mailbox = self.e2ee_to_device.lock().await;
+        let mailbox = self.e2ee.to_device.lock().await;
         let mut counts = HashMap::new();
         for message in mailbox
             .values()
@@ -238,7 +258,7 @@ impl AbstractE2ee for ReferenceDb {
         user_id: &str,
         version: Option<&str>,
     ) -> Result<Option<E2eeBackupVersion>> {
-        let versions = self.e2ee_backup_versions.lock().await;
+        let versions = self.e2ee.backup_versions.lock().await;
         Ok(versions
             .values()
             .find(|entry| {
@@ -251,7 +271,7 @@ impl AbstractE2ee for ReferenceDb {
 
     async fn create_e2ee_backup_version(&self, version: &E2eeBackupVersion) -> Result<()> {
         let replaced: Vec<String> = {
-            let mut versions = self.e2ee_backup_versions.lock().await;
+            let mut versions = self.e2ee.backup_versions.lock().await;
             let replaced = versions
                 .values_mut()
                 .filter(|entry| entry.user_id == version.user_id && !entry.deleted)
@@ -265,7 +285,8 @@ impl AbstractE2ee for ReferenceDb {
             replaced
         };
 
-        self.e2ee_backup_keys
+        self.e2ee
+            .backup_keys
             .lock()
             .await
             .retain(|id, _| !(id.user == version.user_id && replaced.contains(&id.version)));
@@ -279,7 +300,7 @@ impl AbstractE2ee for ReferenceDb {
         version: &str,
         auth_data: &str,
     ) -> Result<bool> {
-        let mut versions = self.e2ee_backup_versions.lock().await;
+        let mut versions = self.e2ee.backup_versions.lock().await;
         if let Some(entry) = versions
             .get_mut(version)
             .filter(|entry| entry.user_id == user_id && !entry.deleted)
@@ -293,7 +314,7 @@ impl AbstractE2ee for ReferenceDb {
 
     async fn delete_e2ee_backup_version(&self, user_id: &str, version: &str) -> Result<bool> {
         {
-            let mut versions = self.e2ee_backup_versions.lock().await;
+            let mut versions = self.e2ee.backup_versions.lock().await;
             match versions
                 .get_mut(version)
                 .filter(|entry| entry.user_id == user_id && !entry.deleted)
@@ -303,7 +324,8 @@ impl AbstractE2ee for ReferenceDb {
             }
         }
 
-        self.e2ee_backup_keys
+        self.e2ee
+            .backup_keys
             .lock()
             .await
             .retain(|id, _| !(id.user == user_id && id.version == version));
@@ -319,7 +341,7 @@ impl AbstractE2ee for ReferenceDb {
     ) -> Result<()> {
         let mut changed = false;
         {
-            let mut backup = self.e2ee_backup_keys.lock().await;
+            let mut backup = self.e2ee.backup_keys.lock().await;
             for key in keys {
                 if backup
                     .get(&key.id)
@@ -332,7 +354,7 @@ impl AbstractE2ee for ReferenceDb {
         }
 
         if changed {
-            let mut versions = self.e2ee_backup_versions.lock().await;
+            let mut versions = self.e2ee.backup_versions.lock().await;
             if let Some(entry) = versions
                 .get_mut(version)
                 .filter(|entry| entry.user_id == user_id)
@@ -351,7 +373,7 @@ impl AbstractE2ee for ReferenceDb {
         room: Option<&str>,
         session: Option<&str>,
     ) -> Result<Vec<E2eeBackupKey>> {
-        let backup = self.e2ee_backup_keys.lock().await;
+        let backup = self.e2ee.backup_keys.lock().await;
         Ok(backup
             .values()
             .filter(|key| matches_key(key, user_id, version, room, session))
@@ -366,12 +388,13 @@ impl AbstractE2ee for ReferenceDb {
         room: Option<&str>,
         session: Option<&str>,
     ) -> Result<()> {
-        self.e2ee_backup_keys
+        self.e2ee
+            .backup_keys
             .lock()
             .await
             .retain(|_, key| !matches_key(key, user_id, version, room, session));
 
-        let mut versions = self.e2ee_backup_versions.lock().await;
+        let mut versions = self.e2ee.backup_versions.lock().await;
         if let Some(entry) = versions
             .get_mut(version)
             .filter(|entry| entry.user_id == user_id)
@@ -383,7 +406,7 @@ impl AbstractE2ee for ReferenceDb {
     }
 
     async fn count_e2ee_backup_keys(&self, user_id: &str, version: &str) -> Result<u64> {
-        let backup = self.e2ee_backup_keys.lock().await;
+        let backup = self.e2ee.backup_keys.lock().await;
         Ok(backup
             .values()
             .filter(|key| matches_key(key, user_id, version, None, None))
@@ -391,7 +414,7 @@ impl AbstractE2ee for ReferenceDb {
     }
 
     async fn fetch_e2ee_secret(&self, user_id: &str, secret_type: &str) -> Result<Option<String>> {
-        let secrets = self.e2ee_secrets.lock().await;
+        let secrets = self.e2ee.secrets.lock().await;
         Ok(secrets
             .get(&E2eeSecretId {
                 user: user_id.to_string(),
@@ -406,7 +429,7 @@ impl AbstractE2ee for ReferenceDb {
             secret_type: secret_type.to_string(),
         };
 
-        self.e2ee_secrets.lock().await.insert(
+        self.e2ee.secrets.lock().await.insert(
             id.clone(),
             E2eeSecret {
                 id,
@@ -418,7 +441,7 @@ impl AbstractE2ee for ReferenceDb {
     }
 
     async fn fetch_e2ee_secret_types(&self, user_id: &str) -> Result<Vec<String>> {
-        let secrets = self.e2ee_secrets.lock().await;
+        let secrets = self.e2ee.secrets.lock().await;
         Ok(secrets
             .keys()
             .filter(|id| id.user == user_id)

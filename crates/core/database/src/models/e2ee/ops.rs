@@ -12,6 +12,8 @@ use crate::{
 mod mongodb;
 mod reference;
 
+pub use reference::E2eeReferenceDb;
+
 /// End-to-end encryption storage: devices, keys, to-device mailbox,
 /// key backup and secret storage (the server only relays opaque data)
 #[async_trait]

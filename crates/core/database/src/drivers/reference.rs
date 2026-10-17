@@ -1,15 +1,11 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use futures::lock::Mutex;
 
 use crate::{
     Account, AccountInvite, AuditLogEntry, Bot, Channel, ChannelCompositeKey, ChannelUnread,
-    DiscoverBan, DiscoverRequest, DiscoverRequestType, E2eeBackupKey, E2eeBackupKeyId,
-    E2eeBackupVersion, E2eeDevice, E2eeFallbackKey, E2eeOneTimeKey, E2eeSecret, E2eeSecretId,
-    E2eeToDeviceMessage, Emoji, File, FileHash, Invite, MFATicket,
+    DiscoverBan, DiscoverRequest, DiscoverRequestType, E2eeReferenceDb, Emoji, File, FileHash,
+    Invite, MFATicket,
     Member, MemberCompositeKey, Message, PolicyChange, RatelimitEvent, Report, Server, ServerBan,
     Session, Snapshot, User, UserSettings, Webhook,
 };
@@ -43,12 +39,6 @@ database_derived!(
         pub account_invites: Arc<Mutex<HashMap<String, AccountInvite>>>,
         pub sessions: Arc<Mutex<HashMap<String, Session>>>,
         pub tickets: Arc<Mutex<HashMap<String, MFATicket>>>,
-        pub e2ee_devices: Arc<Mutex<HashMap<String, E2eeDevice>>>,
-        pub e2ee_one_time_keys: Arc<Mutex<BTreeMap<String, E2eeOneTimeKey>>>,
-        pub e2ee_fallback_keys: Arc<Mutex<HashMap<String, E2eeFallbackKey>>>,
-        pub e2ee_to_device: Arc<Mutex<BTreeMap<String, E2eeToDeviceMessage>>>,
-        pub e2ee_backup_versions: Arc<Mutex<HashMap<String, E2eeBackupVersion>>>,
-        pub e2ee_backup_keys: Arc<Mutex<HashMap<E2eeBackupKeyId, E2eeBackupKey>>>,
-        pub e2ee_secrets: Arc<Mutex<HashMap<E2eeSecretId, E2eeSecret>>>,
+        pub e2ee: Arc<E2eeReferenceDb>,
     }
 );
