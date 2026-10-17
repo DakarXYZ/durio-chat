@@ -32,6 +32,8 @@ mod tests_channels;
 #[cfg(test)]
 mod tests_messages;
 #[cfg(test)]
+mod tests_openapi;
+#[cfg(test)]
 mod tests_scenarios;
 
 pub use guard::E2eeSession;

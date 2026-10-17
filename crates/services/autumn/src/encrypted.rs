@@ -99,6 +99,28 @@ mod tests {
         ));
     }
 
+    /// `?encrypted` reaches the autumn OpenAPI (clients generate types from it)
+    #[test]
+    fn documented() {
+        use utoipa::OpenApi;
+
+        #[derive(OpenApi)]
+        #[openapi(paths(crate::api::upload_file))]
+        struct Doc;
+
+        let spec = serde_json::to_value(Doc::openapi()).unwrap();
+        let parameters = spec["paths"]["/{tag}"]["post"]["parameters"]
+            .as_array()
+            .unwrap();
+        let encrypted = parameters
+            .iter()
+            .find(|parameter| parameter["name"] == "encrypted")
+            .expect("`encrypted` parameter");
+
+        assert_eq!(encrypted["in"], "query");
+        assert_eq!(encrypted["schema"]["type"], "boolean");
+    }
+
     #[test]
     fn marked() {
         let hash = FileHash {
