@@ -41,6 +41,11 @@ pub async fn search(
         .await
         .throw_if_lacking_channel_permission(ChannelPermission::ReadMessageHistory)?;
 
+    // dur.io fork: ciphertext cannot be searched, pinned messages still can be listed
+    if options.query.is_some() && channel.is_encrypted() {
+        return Err(create_error!(SearchUnavailableInEncryptedChannel));
+    }
+
     let v0::DataMessageSearch {
         query,
         pinned,

@@ -619,3 +619,61 @@ async fn push_without_text() {
     assert!(notification.raw_body.is_none());
     assert!(notification.message.encrypted.is_some());
 }
+
+/// Full-text search is unavailable, listing pinned messages still works
+#[rocket::async_test]
+async fn search_disabled() {
+    let harness = TestHarness::new().await;
+    let dm = encrypted_dm(&harness).await;
+
+    let (status, message) = send(
+        &harness,
+        &dm.session,
+        dm.channel.id(),
+        json!({ "encrypted": envelope(&dm.session.id, "cipher") }),
+    )
+    .await;
+    assert_eq!(status, Status::Ok);
+
+    let (status, _) = request(
+        &harness,
+        Method::Post,
+        &dm.session,
+        &format!(
+            "/channels/{}/messages/{}/pin",
+            dm.channel.id(),
+            message["_id"].as_str().unwrap()
+        ),
+        None,
+    )
+    .await;
+    assert!(status.code < 300, "{status}");
+
+    let path = format!("/channels/{}/search", dm.channel.id());
+    let (status, body) = request(
+        &harness,
+        Method::Post,
+        &dm.session,
+        &path,
+        Some(json!({ "query": "cipher" })),
+    )
+    .await;
+    assert_eq!(status, Status::BadRequest);
+    assert!(matches!(
+        error_type(body),
+        ErrorType::SearchUnavailableInEncryptedChannel
+    ));
+
+    let (status, body) = request(
+        &harness,
+        Method::Post,
+        &dm.session,
+        &path,
+        Some(json!({ "pinned": true })),
+    )
+    .await;
+    assert_eq!(status, Status::Ok, "{body}");
+    let pinned = body.as_array().expect("messages");
+    assert_eq!(pinned.len(), 1, "{body}");
+    assert_eq!(pinned[0]["_id"], message["_id"]);
+}
