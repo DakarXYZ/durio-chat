@@ -46,6 +46,9 @@ auto_derived!(
         #[serde(rename = "_id")]
         pub id: String,
         pub name: String,
+        /// When the session was last active, shown in the device list (dur.io fork)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub last_seen: Option<Timestamp>,
     }
 
     /// # Login Data

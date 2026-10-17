@@ -1709,6 +1709,7 @@ impl From<crate::Session> for SessionInfo {
         SessionInfo {
             id: item.id,
             name: item.name,
+            last_seen: Some(item.last_seen),
         }
     }
 }

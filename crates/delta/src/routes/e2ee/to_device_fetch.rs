@@ -1,5 +1,6 @@
 //! Fetch to-device messages of the current device
 //! GET /e2ee/to_device?limit
+use iso8601_timestamp::{Duration, Timestamp};
 use revolt_database::Database;
 use revolt_models::v0::{self, e2ee_user_id};
 use revolt_result::{Result, create_error};
@@ -10,6 +11,9 @@ use super::E2eeSession;
 
 /// Messages returned when no limit is given
 const DEFAULT_LIMIT: i64 = 100;
+
+/// `last_seen` of the session is refreshed at most this often (hours)
+const LAST_SEEN_INTERVAL_HOURS: i64 = 1;
 
 /// # Fetch To-Device Messages
 ///
@@ -27,6 +31,18 @@ pub async fn fetch(
             error: error.to_string()
         })
     })?;
+
+    // Mobile clients fetch the mailbox on push without keeping a socket open,
+    // the device list shows when a device was last active
+    let now = Timestamp::now_utc();
+    if now
+        .checked_sub(Duration::hours(LAST_SEEN_INTERVAL_HOURS))
+        .is_some_and(|threshold| e2ee.session.last_seen < threshold)
+    {
+        db.update_session_last_seen(e2ee.device_id(), now)
+            .await
+            .ok();
+    }
 
     let limit = options.limit.unwrap_or(DEFAULT_LIMIT) as usize;
     let messages = db
@@ -47,12 +63,66 @@ pub async fn fetch(
 
 #[cfg(test)]
 mod tests {
+    use iso8601_timestamp::{Duration, Timestamp};
     use revolt_models::v0::e2ee_user_id;
     use rocket::http::{Method, Status};
     use serde_json::json;
 
     use crate::routes::e2ee::tests::{get, new_device, new_device_user, request};
     use crate::util::test::TestHarness;
+
+    /// `last_seen` is refreshed when it is older than an hour (BE-31)
+    #[rocket::async_test]
+    async fn refreshes_last_seen() {
+        let harness = TestHarness::new().await;
+        let (_, session, _) = harness.new_user().await;
+
+        let last_seen = |minutes: i64| {
+            Timestamp::now_utc()
+                .checked_sub(Duration::minutes(minutes))
+                .unwrap()
+        };
+
+        // Recent enough: unchanged
+        let recent = last_seen(30);
+        harness
+            .db
+            .update_session_last_seen(&session.id, recent)
+            .await
+            .unwrap();
+        get(&harness, &session, "/e2ee/to_device").await;
+        assert_eq!(
+            harness
+                .db
+                .fetch_session(&session.id)
+                .await
+                .unwrap()
+                .last_seen,
+            recent
+        );
+
+        // Stale: refreshed and listed with the sessions
+        harness
+            .db
+            .update_session_last_seen(&session.id, last_seen(120))
+            .await
+            .unwrap();
+        let before = Timestamp::now_utc();
+        get(&harness, &session, "/e2ee/to_device").await;
+        let refreshed = harness
+            .db
+            .fetch_session(&session.id)
+            .await
+            .unwrap()
+            .last_seen;
+        assert!(refreshed >= before.checked_sub(Duration::seconds(1)).unwrap());
+
+        let (status, body) = get(&harness, &session, "/auth/session/all").await;
+        assert_eq!(status, Status::Ok);
+        let listed: Timestamp =
+            serde_json::from_value(body[0]["last_seen"].clone()).expect("last_seen");
+        assert!(listed >= before.checked_sub(Duration::seconds(1)).unwrap());
+    }
 
     #[rocket::async_test]
     async fn limit_and_order() {
