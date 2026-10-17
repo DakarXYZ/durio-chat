@@ -41,6 +41,10 @@ pub async fn webhook_edit_message(
         return Err(create_error!(CannotEditMessage));
     }
 
+    // dur.io fork: webhooks never touch encrypted channels
+    let channel = db.fetch_channel(&message.channel).await?;
+    message.check_webhook_edit(&channel, &edit)?;
+
     message.edited = Some(Timestamp::now_utc());
     let mut partial = PartialMessage {
         edited: message.edited,

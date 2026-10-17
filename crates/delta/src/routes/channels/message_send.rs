@@ -6,7 +6,7 @@ use revolt_database::util::permissions::DatabasePermissionQuery;
 use revolt_database::{
     util::idempotency::IdempotencyKey, util::reference::Reference, Database, User,
 };
-use revolt_database::{Channel, Interactions, Message, AMQP};
+use revolt_database::{check_envelope_device, Channel, Interactions, Message, Session, AMQP};
 use revolt_models::v0;
 use revolt_models::v0::ChannelSlowmode;
 use revolt_permissions::PermissionQuery;
@@ -25,6 +25,7 @@ pub async fn message_send(
     db: &State<Database>,
     amqp: &State<AMQP>,
     user: User,
+    session: Option<Session>,
     target: Reference<'_>,
     data: Json<v0::DataMessageSend>,
     idempotency: IdempotencyKey,
@@ -35,6 +36,12 @@ pub async fn message_send(
             error: error.to_string()
         })
     })?;
+
+    // dur.io fork: an envelope names the sending device
+    check_envelope_device(
+        data.encrypted.as_ref(),
+        session.as_ref().map(|session| session.id.as_str()),
+    )?;
 
     // Ensure we have permissions to send a message
     let channel = target.as_channel(db).await?;

@@ -285,6 +285,10 @@ impl Message {
     ) -> Result<Message> {
         let config = config().await;
 
+        // dur.io fork: encrypted channels take only an envelope
+        Message::check_encrypted_send(&channel, &data, &author, &config.features.e2ee)?;
+        let max_attachments = super::attachment_limit(&limits, channel.is_encrypted());
+
         Message::validate_sum(
             &data.content,
             data.embeds.as_deref().unwrap_or_default(),
@@ -300,6 +304,7 @@ impl Message {
         if (data.content.as_ref().is_none_or(|v| v.is_empty()))
             && (data.attachments.as_ref().is_none_or(|v| v.is_empty()))
             && (data.embeds.as_ref().is_none_or(|v| v.is_empty()))
+            && data.encrypted.is_none()
         {
             return Err(create_error!(EmptyMessage));
         }
@@ -587,10 +592,10 @@ impl Message {
         if data
             .attachments
             .as_ref()
-            .is_some_and(|v| v.len() > limits.message_attachments)
+            .is_some_and(|v| v.len() > max_attachments)
         {
             return Err(create_error!(TooManyAttachments {
-                max: limits.message_attachments,
+                max: max_attachments,
             }));
         }
 
@@ -620,6 +625,7 @@ impl Message {
 
         // Set content
         message.content = data.content;
+        message.encrypted = data.encrypted;
 
         // Pass-through nonce value for clients
         message.nonce = Some(idempotency.into_key());
@@ -702,6 +708,8 @@ impl Message {
         channel: &Channel,
         generate_embeds: bool,
     ) -> Result<()> {
+        self.check_channel_encryption(channel)?;
+
         self.send_without_notifications(
             db,
             user.clone(),

@@ -29,6 +29,8 @@ mod tests;
 mod tests_cascade;
 #[cfg(test)]
 mod tests_channels;
+#[cfg(test)]
+mod tests_messages;
 
 pub use guard::E2eeSession;
 

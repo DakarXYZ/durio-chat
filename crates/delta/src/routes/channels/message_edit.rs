@@ -2,7 +2,7 @@ use iso8601_timestamp::Timestamp;
 use revolt_database::{
     tasks,
     util::{permissions::DatabasePermissionQuery, reference::Reference},
-    Database, Message, PartialMessage, User,
+    Database, Message, PartialMessage, Session, User,
 };
 use revolt_models::v0::{self, Embed};
 use revolt_permissions::{calculate_channel_permissions, ChannelPermission};
@@ -18,6 +18,7 @@ use validator::Validate;
 pub async fn edit(
     db: &State<Database>,
     user: User,
+    session: Option<Session>,
     target: Reference<'_>,
     msg: Reference<'_>,
     edit: Json<v0::DataEditMessage>,
@@ -45,6 +46,15 @@ pub async fn edit(
     let mut message = msg.as_message_in_channel(db, channel.id()).await?;
     if message.author != user.id {
         return Err(create_error!(CannotEditMessage));
+    }
+
+    // dur.io fork: encrypted messages only get a new envelope
+    if channel.is_encrypted() || edit.encrypted.is_some() {
+        let session_id = session.as_ref().map(|session| session.id.as_str());
+        message
+            .edit_encrypted(db, &channel, edit, session_id)
+            .await?;
+        return Ok(Json(message.into_model(None, None)));
     }
 
     message.edited = Some(Timestamp::now_utc());
