@@ -1,5 +1,6 @@
 # Build Stage
-FROM ghcr.io/stoatchat/base:latest AS builder
+ARG BASE_IMAGE=ghcr.io/stoatchat/base:latest
+FROM ${BASE_IMAGE} AS builder
 FROM debian:13 AS debian
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libdav1d7 && \
@@ -11,6 +12,7 @@ RUN apt-get update && \
 # Bundle Stage
 FROM gcr.io/distroless/cc-debian13:nonroot
 COPY --from=builder /home/rust/src/target/release/revolt-autumn ./
+COPY --from=builder /home/rust/src/target/release/healthcheck /usr/local/bin/healthcheck
 COPY --from=debian /runtime-libs/ /
 COPY --from=mwader/static-ffmpeg:7.1.1 /ffmpeg /usr/local/bin/
 COPY --from=mwader/static-ffmpeg:7.1.1 /ffprobe /usr/local/bin/
