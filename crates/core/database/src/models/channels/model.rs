@@ -40,6 +40,9 @@ auto_derived!(
             /// Id of the last message sent in this channel
             #[serde(skip_serializing_if = "Option::is_none")]
             last_message_id: Option<String>,
+            /// End-to-end encryption settings, if enabled
+            #[serde(skip_serializing_if = "Option::is_none")]
+            encryption: Option<v0::ChannelEncryption>,
         },
         /// Group channel between 1 or more participants
         Group {
@@ -72,6 +75,9 @@ auto_derived!(
             /// Whether this group is marked as not safe for work
             #[serde(skip_serializing_if = "crate::if_false", default)]
             nsfw: bool,
+            /// End-to-end encryption settings, if enabled
+            #[serde(skip_serializing_if = "Option::is_none")]
+            encryption: Option<v0::ChannelEncryption>,
         },
         /// Text channel belonging to a server
         TextChannel {
@@ -153,6 +159,8 @@ auto_derived!(
         pub voice: Option<VoiceInformation>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub slowmode: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub encryption: Option<v0::ChannelEncryption>,
     }
 
     /// Optional fields on channel object
@@ -291,6 +299,7 @@ impl Channel {
             permissions: None,
 
             nsfw: data.nsfw.unwrap_or(false),
+            encryption: None,
         };
 
         db.insert_channel(&channel).await?;
@@ -321,6 +330,7 @@ impl Channel {
                     active: true, // show by default
                     recipients: vec![user_a.id.clone(), user_b.id.clone()],
                     last_message_id: None,
+                    encryption: None,
                 }
             };
 
@@ -571,9 +581,15 @@ impl Channel {
     pub fn apply_options(&mut self, partial: PartialChannel) {
         match self {
             Self::SavedMessages { .. } => {}
-            Self::DirectMessage { active, .. } => {
+            Self::DirectMessage {
+                active, encryption, ..
+            } => {
                 if let Some(v) = partial.active {
                     *active = v;
+                }
+
+                if let Some(v) = partial.encryption {
+                    encryption.replace(v);
                 }
             }
             Self::Group {
@@ -583,6 +599,7 @@ impl Channel {
                 icon,
                 nsfw,
                 permissions,
+                encryption,
                 ..
             } => {
                 if let Some(v) = partial.name {
@@ -607,6 +624,10 @@ impl Channel {
 
                 if let Some(v) = partial.permissions {
                     permissions.replace(v);
+                }
+
+                if let Some(v) = partial.encryption {
+                    encryption.replace(v);
                 }
             }
             Self::TextChannel {
@@ -663,6 +684,7 @@ impl Channel {
             Channel::DirectMessage {
                 active,
                 last_message_id,
+                encryption,
                 ..
             } => {
                 if partial.active.is_some() {
@@ -671,6 +693,10 @@ impl Channel {
 
                 if partial.last_message_id.is_some() {
                     before.last_message_id = last_message_id.clone()
+                };
+
+                if partial.encryption.is_some() {
+                    before.encryption = encryption.clone()
                 };
             }
             Channel::Group {
@@ -681,8 +707,13 @@ impl Channel {
                 last_message_id,
                 permissions,
                 nsfw,
+                encryption,
                 ..
             } => {
+                if partial.encryption.is_some() {
+                    before.encryption = encryption.clone()
+                };
+
                 if partial.name.is_some() {
                     before.name = Some(name.clone());
                 };

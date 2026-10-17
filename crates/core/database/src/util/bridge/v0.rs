@@ -210,11 +210,13 @@ impl From<crate::Channel> for Channel {
                 active,
                 recipients,
                 last_message_id,
+                encryption,
             } => Channel::DirectMessage {
                 id,
                 active,
                 recipients,
                 last_message_id,
+                encryption,
             },
             crate::Channel::Group {
                 id,
@@ -226,6 +228,7 @@ impl From<crate::Channel> for Channel {
                 last_message_id,
                 permissions,
                 nsfw,
+                encryption,
             } => Channel::Group {
                 id,
                 name,
@@ -236,6 +239,7 @@ impl From<crate::Channel> for Channel {
                 last_message_id,
                 permissions,
                 nsfw,
+                encryption,
             },
             crate::Channel::TextChannel {
                 id,
@@ -276,11 +280,13 @@ impl From<Channel> for crate::Channel {
                 active,
                 recipients,
                 last_message_id,
+                encryption,
             } => crate::Channel::DirectMessage {
                 id,
                 active,
                 recipients,
                 last_message_id,
+                encryption,
             },
             Channel::Group {
                 id,
@@ -292,6 +298,7 @@ impl From<Channel> for crate::Channel {
                 last_message_id,
                 permissions,
                 nsfw,
+                encryption,
             } => crate::Channel::Group {
                 id,
                 name,
@@ -302,6 +309,7 @@ impl From<Channel> for crate::Channel {
                 last_message_id,
                 permissions,
                 nsfw,
+                encryption,
             },
             Channel::TextChannel {
                 id,
@@ -347,6 +355,7 @@ impl From<crate::PartialChannel> for PartialChannel {
             last_message_id: value.last_message_id,
             voice: value.voice.map(|voice| voice.into()),
             slowmode: value.slowmode,
+            encryption: value.encryption,
         }
     }
 }
@@ -366,6 +375,7 @@ impl From<PartialChannel> for crate::PartialChannel {
             last_message_id: value.last_message_id,
             voice: value.voice.map(|voice| voice.into()),
             slowmode: value.slowmode,
+            encryption: value.encryption,
         }
     }
 }
@@ -528,6 +538,7 @@ impl crate::Message {
             member,
             webhook: self.webhook,
             content: self.content,
+            encrypted: self.encrypted,
             system: self.system.map(Into::into),
             attachments: self
                 .attachments
@@ -557,6 +568,7 @@ impl From<crate::PartialMessage> for PartialMessage {
             member: None,
             webhook: value.webhook,
             content: value.content,
+            encrypted: value.encrypted,
             system: value.system.map(Into::into),
             attachments: value
                 .attachments

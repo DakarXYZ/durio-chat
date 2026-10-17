@@ -11,7 +11,9 @@ use rocket::{FromForm, FromFormField};
 
 use iso8601_timestamp::Timestamp;
 
-use super::{Channel, Embed, File, Member, MessageWebhook, User, Webhook, RE_COLOUR};
+use super::{
+    Channel, Embed, EncryptedEnvelope, File, Member, MessageWebhook, User, Webhook, RE_COLOUR,
+};
 
 auto_derived_partial!(
     /// Message
@@ -38,6 +40,9 @@ auto_derived_partial!(
         /// Message content
         #[serde(skip_serializing_if = "Option::is_none")]
         pub content: Option<String>,
+        /// Encrypted content (end-to-end encrypted channels)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub encrypted: Option<EncryptedEnvelope>,
         /// System message
         #[serde(skip_serializing_if = "Option::is_none")]
         pub system: Option<SystemMessage>,
@@ -282,6 +287,11 @@ auto_derived!(
         ///
         /// https://docs.rs/revolt-models/latest/revolt_models/v0/enum.MessageFlags.html
         pub flags: Option<u32>,
+
+        /// Encrypted content, required in end-to-end encrypted channels (instead of `content`)
+        #[cfg_attr(feature = "validator", validate)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub encrypted: Option<EncryptedEnvelope>,
     }
 
     /// Options for querying messages
@@ -350,6 +360,10 @@ auto_derived!(
         /// Embeds to include in the message
         #[cfg_attr(feature = "validator", validate(length(min = 0, max = 10)))]
         pub embeds: Option<Vec<SendableEmbed>>,
+        /// New encrypted content (end-to-end encrypted channels)
+        #[cfg_attr(feature = "validator", validate)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub encrypted: Option<EncryptedEnvelope>,
     }
 
     /// Options for bulk deleting messages

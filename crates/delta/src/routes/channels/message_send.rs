@@ -268,6 +268,7 @@ mod test {
             last_message_id: None,
             voice: None,
             slowmode: None,
+            encryption: None,
         };
         locked_channel
             .update(&harness.db, partial, vec![])
@@ -296,6 +297,7 @@ mod test {
                 masquerade: None,
                 interactions: None,
                 flags: None,
+                encrypted: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -336,6 +338,7 @@ mod test {
                 masquerade: None,
                 interactions: None,
                 flags: None,
+                encrypted: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -385,6 +388,7 @@ mod test {
                 masquerade: None,
                 interactions: None,
                 flags: None,
+                encrypted: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -431,6 +435,7 @@ mod test {
                 masquerade: None,
                 interactions: None,
                 flags: None,
+                encrypted: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -482,6 +487,7 @@ mod test {
                 masquerade: None,
                 interactions: None,
                 flags: None,
+                encrypted: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -519,6 +525,7 @@ mod test {
                 masquerade: None,
                 interactions: None,
                 flags: None,
+                encrypted: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -550,6 +557,7 @@ mod test {
                 masquerade: None,
                 interactions: None,
                 flags: None,
+                encrypted: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -600,6 +608,7 @@ mod test {
                 masquerade: None,
                 interactions: None,
                 flags: None,
+                encrypted: None,
             },
             v0::MessageAuthor::User(
                 &other_user
@@ -645,6 +654,7 @@ mod test {
                 masquerade: None,
                 interactions: None,
                 flags: None,
+                encrypted: None,
             },
             v0::MessageAuthor::User(
                 &other_user
@@ -715,6 +725,7 @@ mod test {
                 masquerade: None,
                 interactions: None,
                 flags: None,
+                encrypted: None,
             },
             v0::MessageAuthor::User(
                 &other_user

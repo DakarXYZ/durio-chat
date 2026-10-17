@@ -1,5 +1,5 @@
 #![allow(deprecated)]
-use super::{File, UserVoiceState};
+use super::{ChannelEncryption, File, UserVoiceState};
 
 use revolt_permissions::{Override, OverrideField};
 use std::collections::{HashMap, HashSet};
@@ -32,6 +32,9 @@ auto_derived!(
             /// Id of the last message sent in this channel
             #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
             last_message_id: Option<String>,
+            /// End-to-end encryption settings, if enabled
+            #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+            encryption: Option<ChannelEncryption>,
         },
         /// Group channel between 1 or more participants
         Group {
@@ -67,6 +70,9 @@ auto_derived!(
                 serde(skip_serializing_if = "crate::if_false", default)
             )]
             nsfw: bool,
+            /// End-to-end encryption settings, if enabled
+            #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+            encryption: Option<ChannelEncryption>,
         },
         /// Text channel belonging to a server
         TextChannel {
@@ -156,6 +162,8 @@ auto_derived!(
         pub voice: Option<VoiceInformation>,
         #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
         pub slowmode: Option<u64>,
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+        pub encryption: Option<ChannelEncryption>,
     }
 
     /// Optional fields on channel object

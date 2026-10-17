@@ -40,6 +40,9 @@ auto_derived_partial!(
         /// Message content
         #[serde(skip_serializing_if = "Option::is_none")]
         pub content: Option<String>,
+        /// Encrypted content (end-to-end encrypted channels)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub encrypted: Option<v0::EncryptedEnvelope>,
         /// System message
         #[serde(skip_serializing_if = "Option::is_none")]
         pub system: Option<SystemMessage>,
@@ -243,6 +246,7 @@ impl Default for Message {
             author: Default::default(),
             webhook: None,
             content: None,
+            encrypted: None,
             system: None,
             attachments: None,
             edited: None,

@@ -164,6 +164,7 @@ impl TestHarness {
                 masquerade: None,
                 interactions: None,
                 flags: None,
+                encrypted: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&self.db, Some(user)).await),
             Some(user.clone().into(&self.db, Some(user)).await),
