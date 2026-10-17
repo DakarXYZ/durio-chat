@@ -31,6 +31,8 @@ mod tests_cascade;
 mod tests_channels;
 #[cfg(test)]
 mod tests_messages;
+#[cfg(test)]
+mod tests_scenarios;
 
 pub use guard::E2eeSession;
 
