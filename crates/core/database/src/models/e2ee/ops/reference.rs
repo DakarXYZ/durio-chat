@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use futures::lock::Mutex;
 
@@ -491,6 +491,90 @@ impl AbstractE2ee for ReferenceDb {
             .retain(|id, _| id.user != user_id);
 
         Ok(())
+    }
+
+    async fn fetch_e2ee_devices_without_session(&self) -> Result<Vec<(String, String)>> {
+        let devices: Vec<(String, String)> = self
+            .e2ee
+            .devices
+            .lock()
+            .await
+            .values()
+            .map(|device| (device.user_id.clone(), device.id.clone()))
+            .collect();
+
+        let sessions = self.sessions.lock().await;
+        Ok(devices
+            .into_iter()
+            .filter(|(_, device_id)| !sessions.contains_key(device_id))
+            .collect())
+    }
+
+    async fn delete_e2ee_orphan_device_data(&self) -> Result<Vec<String>> {
+        // Candidates first, then the devices (one lock at a time)
+        let mut candidates: HashSet<String> = self
+            .e2ee
+            .one_time_keys
+            .lock()
+            .await
+            .values()
+            .map(|key| key.device_id.clone())
+            .collect();
+        candidates.extend(self.e2ee.fallback_keys.lock().await.keys().cloned());
+        candidates.extend(
+            self.e2ee
+                .to_device
+                .lock()
+                .await
+                .values()
+                .map(|message| message.recipient_device.clone()),
+        );
+
+        let orphans: Vec<String> = {
+            let devices = self.e2ee.devices.lock().await;
+            candidates
+                .into_iter()
+                .filter(|id| !devices.contains_key(id))
+                .collect()
+        };
+
+        self.delete_e2ee_device_data(&orphans).await?;
+        Ok(orphans)
+    }
+
+    async fn delete_e2ee_orphan_backups(&self) -> Result<(u64, u64)> {
+        let versions: HashSet<String> = self
+            .e2ee
+            .backup_keys
+            .lock()
+            .await
+            .keys()
+            .map(|id| id.version.clone())
+            .collect();
+
+        let orphaned: HashSet<String> = {
+            let backup_versions = self.e2ee.backup_versions.lock().await;
+            versions
+                .into_iter()
+                .filter(|version| {
+                    !backup_versions
+                        .get(version)
+                        .is_some_and(|version| !version.deleted)
+                })
+                .collect()
+        };
+
+        let keys = {
+            let mut backup_keys = self.e2ee.backup_keys.lock().await;
+            let before = backup_keys.len();
+            backup_keys.retain(|id, _| !orphaned.contains(&id.version));
+            (before - backup_keys.len()) as u64
+        };
+
+        let mut backup_versions = self.e2ee.backup_versions.lock().await;
+        let before = backup_versions.len();
+        backup_versions.retain(|_, version| !version.deleted);
+        Ok((keys, (before - backup_versions.len()) as u64))
     }
 
     async fn set_channel_encryption(

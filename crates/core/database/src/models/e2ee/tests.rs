@@ -4,7 +4,7 @@ use revolt_models::v0::{self, ChannelEncryption};
 
 use crate::{
     Channel, Database, DatabaseInfo, E2eeBackupKey, E2eeBackupKeyId, E2eeBackupVersion, E2eeDevice,
-    E2eeFallbackKey, E2eeOneTimeKey, E2eeToDeviceMessage,
+    E2eeFallbackKey, E2eeOneTimeKey, E2eePruneReport, E2eeToDeviceMessage, prune_e2ee_orphans,
 };
 
 /// Fresh database with collections and indexes
@@ -841,4 +841,127 @@ fn debug_redacted() {
         assert!(!output.contains(secret), "{output}");
         assert!(output.contains("<redacted>"), "{output}");
     }
+}
+
+/// Orphans of failed cascades and races are removed by the cleanup (BE-28)
+#[tokio::test]
+async fn prune_orphans() {
+    let db = test_db("prune_orphans").await;
+    // Removing a device without a session tells contacts
+    crate::AMQP::new_auto().await;
+
+    let session = crate::Session {
+        id: "LIVE".to_string(),
+        user_id: "user".to_string(),
+        token: "token".to_string(),
+        name: String::new(),
+        last_seen: Timestamp::now_utc(),
+        origin: None,
+        subscription: None,
+    };
+    db.save_session(&session).await.unwrap();
+
+    // LIVE has a session, GONE lost it, NONE never had a device
+    for id in ["LIVE", "GONE"] {
+        db.insert_e2ee_device(&device(id, "user")).await.unwrap();
+    }
+    for id in ["LIVE", "GONE", "NONE"] {
+        db.insert_one_time_keys(vec![otk(id, "K")]).await.unwrap();
+        db.set_fallback_key(&fallback(id, "F")).await.unwrap();
+        db.insert_to_device(vec![to_device(id, "SENDER", id)])
+            .await
+            .unwrap();
+    }
+
+    // A write racing a version replace, and keys of a version that is gone
+    db.create_e2ee_backup_version(&backup_version("V1", "user"))
+        .await
+        .unwrap();
+    db.create_e2ee_backup_version(&backup_version("V2", "user"))
+        .await
+        .unwrap();
+    for version in ["V1", "V2", "MISSING"] {
+        db.upsert_e2ee_backup_keys("user", version, vec![backup_key(version, "s", 0, false, 0)])
+            .await
+            .unwrap();
+    }
+
+    let report = prune_e2ee_orphans(&db).await.unwrap();
+    assert_eq!(
+        report,
+        E2eePruneReport {
+            devices: 1,
+            device_data: 1,
+            backup_keys: 2,
+            backup_versions: 1,
+        }
+    );
+
+    assert!(db.fetch_e2ee_device("LIVE").await.is_ok());
+    assert!(db.fetch_e2ee_device("GONE").await.is_err());
+    for (id, left) in [("LIVE", 1), ("GONE", 0), ("NONE", 0)] {
+        let keys: usize = db.count_one_time_keys(id).await.unwrap().values().sum();
+        assert_eq!(keys, left, "{id}");
+        assert_eq!(
+            db.fetch_unused_fallback_key_types(id).await.unwrap().len(),
+            left,
+            "{id}"
+        );
+        assert_eq!(
+            db.fetch_to_device(id, 10).await.unwrap().len(),
+            left,
+            "{id}"
+        );
+    }
+
+    assert_eq!(db.count_e2ee_backup_keys("user", "V2").await.unwrap(), 1);
+    assert_eq!(
+        db.fetch_e2ee_backup_version("user", None)
+            .await
+            .unwrap()
+            .map(|version| version.id),
+        Some("V2".to_string())
+    );
+
+    // Nothing left to do
+    assert_eq!(
+        prune_e2ee_orphans(&db).await.unwrap(),
+        E2eePruneReport::default()
+    );
+}
+
+/// Encrypted blobs (thumbnails included) dangle and get pruned exactly like plain files
+#[tokio::test]
+async fn encrypted_files_dangling() {
+    let db = test_db("encrypted_files_dangling").await;
+
+    #[allow(clippy::disallowed_methods)]
+    for file in [
+        attachment("ENCRYPTED", "attachments", true),
+        attachment("THUMBNAIL", "attachments", true),
+        attachment("PLAIN", "attachments", false),
+    ] {
+        db.insert_attachment(&file).await.unwrap();
+    }
+
+    let dangling = |files: Vec<crate::File>| {
+        let mut ids: Vec<String> = files.into_iter().map(|file| file.id).collect();
+        ids.sort();
+        ids
+    };
+    assert_eq!(
+        dangling(db.fetch_dangling_files().await.unwrap()),
+        vec!["ENCRYPTED", "PLAIN", "THUMBNAIL"]
+    );
+
+    // A thumbnail listed in `attachments` is used by the message like the file itself
+    for id in ["ENCRYPTED", "THUMBNAIL"] {
+        db.use_message_attachment(id, true, "MESSAGE", "A")
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        dangling(db.fetch_dangling_files().await.unwrap()),
+        vec!["PLAIN"]
+    );
 }

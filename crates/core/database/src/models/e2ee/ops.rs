@@ -160,6 +160,21 @@ pub trait AbstractE2ee: Sync + Send {
     /// key backup (all versions) and secret storage
     async fn delete_e2ee_user_data(&self, user_id: &str) -> Result<()>;
 
+    // ? Orphan cleanup (crond)
+
+    /// Devices whose session no longer exists, as (user id, device id)
+    async fn fetch_e2ee_devices_without_session(&self) -> Result<Vec<(String, String)>>;
+
+    /// Delete one-time keys, fallback keys and mailbox messages of devices that no longer
+    /// exist, returns the ids of these devices
+    ///
+    /// Candidates are read before the devices: keys of a new device always come after it.
+    async fn delete_e2ee_orphan_device_data(&self) -> Result<Vec<String>>;
+
+    /// Delete backed up keys of replaced, deleted or missing versions, then the deleted
+    /// versions themselves, returns the number of keys and versions removed
+    async fn delete_e2ee_orphan_backups(&self) -> Result<(u64, u64)>;
+
     // ? Channels
 
     /// Enable encryption of a direct message or group, only if not yet enabled

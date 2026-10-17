@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bson::{Bson, Document, to_bson, to_document};
 use futures::StreamExt;
@@ -27,6 +27,10 @@ const BACKUP_KEYS: &str = "e2ee_backup_keys";
 const SECRETS: &str = "e2ee_secrets";
 const CHANNELS: &str = "channels";
 const ATTACHMENTS: &str = "attachments";
+const SESSIONS: &str = "sessions";
+
+/// Ids per `$in` query of the orphan cleanup
+const ORPHAN_BATCH: usize = 1000;
 
 /// Attempts to store a single backed up session against concurrent writers
 const BACKUP_KEY_ATTEMPTS: usize = 3;
@@ -92,6 +96,42 @@ async fn count_by(
     }
 
     Ok(counts)
+}
+
+/// Distinct string values of a field among documents matching `filter`
+async fn distinct_strings(
+    db: &MongoDb,
+    collection: &'static str,
+    field: &str,
+    filter: Document,
+) -> Result<HashSet<String>> {
+    let values = db
+        .col::<Document>(collection)
+        .distinct(field, filter)
+        .await
+        .map_err(|_| create_database_error!("distinct", collection))?;
+
+    Ok(values
+        .into_iter()
+        .filter_map(|value| value.as_str().map(str::to_string))
+        .collect())
+}
+
+/// Which of `ids` exist as `_id` of documents matching `filter`
+async fn existing_ids(
+    db: &MongoDb,
+    collection: &'static str,
+    filter: Document,
+    ids: &[String],
+) -> Result<HashSet<String>> {
+    let mut existing = HashSet::new();
+    for chunk in ids.chunks(ORPHAN_BATCH) {
+        let mut filter = filter.clone();
+        filter.insert("_id", doc! { "$in": chunk });
+        existing.extend(distinct_strings(db, collection, "_id", filter).await?);
+    }
+
+    Ok(existing)
 }
 
 /// Filter for backed up sessions of a version, optionally of one room or one session
@@ -740,6 +780,90 @@ impl AbstractE2ee for MongoDb {
         }
 
         Ok(())
+    }
+
+    async fn fetch_e2ee_devices_without_session(&self) -> Result<Vec<(String, String)>> {
+        let mut cursor = self
+            .col::<Document>(DEVICES)
+            .find(doc! {})
+            .projection(doc! { "user_id": 1_i32 })
+            .await
+            .map_err(|_| create_database_error!("find", DEVICES))?;
+
+        // Device id -> user id
+        let mut devices = HashMap::new();
+        while let Some(device) = cursor.next().await {
+            let device = device.map_err(|_| create_database_error!("find", DEVICES))?;
+            if let (Ok(id), Ok(user_id)) = (device.get_str("_id"), device.get_str("user_id")) {
+                devices.insert(id.to_string(), user_id.to_string());
+            }
+        }
+
+        let ids: Vec<String> = devices.keys().cloned().collect();
+        for id in existing_ids(self, SESSIONS, doc! {}, &ids).await? {
+            devices.remove(&id);
+        }
+
+        Ok(devices
+            .into_iter()
+            .map(|(device_id, user_id)| (user_id, device_id))
+            .collect())
+    }
+
+    async fn delete_e2ee_orphan_device_data(&self) -> Result<Vec<String>> {
+        let mut candidates = HashSet::new();
+        for (collection, field) in [
+            (ONE_TIME_KEYS, "device_id"),
+            (FALLBACK_KEYS, "_id"),
+            (TO_DEVICE, "recipient_device"),
+        ] {
+            candidates.extend(distinct_strings(self, collection, field, doc! {}).await?);
+        }
+
+        let candidates: Vec<String> = candidates.into_iter().collect();
+        let existing = existing_ids(self, DEVICES, doc! {}, &candidates).await?;
+        let orphans: Vec<String> = candidates
+            .into_iter()
+            .filter(|id| !existing.contains(id))
+            .collect();
+
+        for chunk in orphans.chunks(ORPHAN_BATCH) {
+            self.delete_e2ee_device_data(chunk).await?;
+        }
+
+        Ok(orphans)
+    }
+
+    async fn delete_e2ee_orphan_backups(&self) -> Result<(u64, u64)> {
+        let versions: Vec<String> = distinct_strings(self, BACKUP_KEYS, "_id.version", doc! {})
+            .await?
+            .into_iter()
+            .collect();
+        let active =
+            existing_ids(self, BACKUP_VERSIONS, doc! { "deleted": false }, &versions).await?;
+        let orphaned: Vec<String> = versions
+            .into_iter()
+            .filter(|version| !active.contains(version))
+            .collect();
+
+        let mut keys = 0;
+        for chunk in orphaned.chunks(ORPHAN_BATCH) {
+            keys += self
+                .col::<Document>(BACKUP_KEYS)
+                .delete_many(doc! { "_id.version": { "$in": chunk } })
+                .await
+                .map_err(|_| create_database_error!("delete_many", BACKUP_KEYS))?
+                .deleted_count;
+        }
+
+        let versions = self
+            .col::<Document>(BACKUP_VERSIONS)
+            .delete_many(doc! { "deleted": true })
+            .await
+            .map_err(|_| create_database_error!("delete_many", BACKUP_VERSIONS))?
+            .deleted_count;
+
+        Ok((keys, versions))
     }
 
     async fn set_channel_encryption(
