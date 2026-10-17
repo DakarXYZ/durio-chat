@@ -177,6 +177,20 @@ fn all_routes(user_id: &str, device_id: &str) -> Vec<(Method, String, Option<Val
             })),
         ),
         (Method::Get, "/e2ee/keys/count".to_string(), None),
+        (
+            Method::Put,
+            "/e2ee/to_device/txn".to_string(),
+            Some(json!({
+                "type": "m.dummy",
+                "messages": { e2ee_user_id(user_id): { device_id: {} } }
+            })),
+        ),
+        (Method::Get, "/e2ee/to_device?limit=10".to_string(), None),
+        (
+            Method::Post,
+            "/e2ee/to_device/ack".to_string(),
+            Some(json!({ "ids": ["01KZ0000000000000000000002"] })),
+        ),
     ]
 }
 

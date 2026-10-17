@@ -16,6 +16,9 @@ mod keys_claim;
 mod keys_count;
 mod keys_query;
 mod keys_upload;
+mod to_device_ack;
+mod to_device_fetch;
+mod to_device_send;
 
 #[cfg(test)]
 mod tests;
@@ -28,6 +31,9 @@ pub fn routes() -> (Vec<Route>, OpenApi) {
         keys_query::query,
         keys_claim::claim,
         keys_count::count,
+        to_device_send::send,
+        to_device_fetch::fetch,
+        to_device_ack::ack,
     ]
 }
 
