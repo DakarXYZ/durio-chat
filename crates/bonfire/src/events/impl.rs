@@ -13,7 +13,10 @@ use revolt_permissions::{calculate_channel_permissions, ChannelPermission};
 use revolt_presence::filter_online;
 use revolt_result::Result;
 
-use super::state::{Cache, State};
+use super::{
+    e2ee::private_e2ee_filter,
+    state::{Cache, State},
+};
 
 /// Cache Manager
 impl Cache {
@@ -450,6 +453,11 @@ impl State {
             return false;
         }*/
 
+        // To-device doorbells only go to the socket of the recipient device.
+        if !private_e2ee_filter(&self.session_id, event) {
+            return false;
+        }
+
         // An event may trigger recalculation of an entire server's permission.
         // Keep track of whether we need to do anything.
         let mut queue_server = None;
@@ -504,14 +512,19 @@ impl State {
                 self.remove_subscription(id).await;
                 self.cache.channels.remove(id);
             }
-            EventV1::ChannelGroupJoin { user, .. } => {
+            EventV1::ChannelGroupJoin { id, user } => {
+                self.cache.apply_group_membership(id, user, true);
                 self.insert_subscription(user.clone()).await;
             }
             EventV1::ChannelGroupLeave { id, user, .. } => {
                 if user == &self.cache.user_id {
                     self.remove_subscription(id).await;
-                } else if !self.cache.can_subscribe_to_user(user) {
-                    self.remove_subscription(user).await;
+                    self.cache.channels.remove(id);
+                } else {
+                    self.cache.apply_group_membership(id, user, false);
+                    if !self.cache.can_subscribe_to_user(user) {
+                        self.remove_subscription(user).await;
+                    }
                 }
             }
 
@@ -652,13 +665,16 @@ impl State {
 
                 *event_id = None;
             }
-            EventV1::UserRelationship { id, user, .. } => {
+            EventV1::UserRelationship { user, .. } => {
+                // `id` is the current user, `user` is the other side.
+                let id = user.id.clone();
+                self.cache.apply_relationship(user);
                 self.cache.users.insert(id.clone(), user.clone().into());
 
-                if self.cache.can_subscribe_to_user(id) {
-                    self.insert_subscription(id.clone()).await;
+                if self.cache.can_subscribe_to_user(&id) {
+                    self.insert_subscription(id).await;
                 } else {
-                    self.remove_subscription(id).await;
+                    self.remove_subscription(&id).await;
                 }
             }
 
@@ -673,6 +689,12 @@ impl State {
                         .expect("missing self?")
                         .relationship_with(&message.author)
                         .into();
+                }
+            }
+
+            EventV1::E2eeDeviceListUpdate { user } => {
+                if !self.cache.can_see_e2ee_devices(user) {
+                    return false;
                 }
             }
 
