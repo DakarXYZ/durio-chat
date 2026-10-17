@@ -1,4 +1,5 @@
 use revolt_config::config;
+use revolt_models::v0::E2EE_ENVELOPE_VERSION;
 use revolt_result::Result;
 use rocket::serde::json::Json;
 use serde::Serialize;
@@ -40,6 +41,29 @@ pub struct VoiceFeature {
     pub nodes: Vec<VoiceNode>,
 }
 
+/// # End-to-end Encryption Configuration
+///
+/// Encryption of direct messages and groups (dur.io fork).
+#[derive(Serialize, JsonSchema, Debug)]
+pub struct E2eeFeature {
+    /// Whether end-to-end encryption is enabled
+    pub enabled: bool,
+    /// Supported encrypted message envelope versions
+    pub envelope_versions: Vec<u32>,
+    /// Maximum size of an envelope ciphertext (bytes)
+    pub max_envelope_bytes: usize,
+    /// Whether new direct messages are encrypted from the start
+    pub default_for_new_dms: bool,
+    /// Maximum number of to-device messages in a single request
+    pub max_to_device_batch: usize,
+    /// Maximum size of a single to-device message content (bytes)
+    pub max_to_device_bytes: usize,
+    /// Maximum attachments of an encrypted message (files and their thumbnails)
+    pub max_attachments: usize,
+    /// Maximum JSON request body size (bytes)
+    pub max_request_bytes: usize,
+}
+
 /// # Feature Configuration
 #[derive(Serialize, JsonSchema, Debug)]
 pub struct RevoltFeatures {
@@ -61,6 +85,8 @@ pub struct RevoltFeatures {
     pub legal_links: LegalLinks,
     /// Asset link
     pub assets: String,
+    /// End-to-end encryption
+    pub e2ee: E2eeFeature,
 }
 
 /// # Limits For Users
@@ -182,6 +208,17 @@ pub struct RevoltConfig {
 pub async fn root() -> Result<Json<RevoltConfig>> {
     let config = config().await;
 
+    let e2ee = E2eeFeature {
+        enabled: config.features.e2ee.enabled,
+        envelope_versions: vec![E2EE_ENVELOPE_VERSION],
+        max_envelope_bytes: config.features.e2ee.max_envelope_bytes,
+        default_for_new_dms: config.features.e2ee.default_for_new_dms,
+        max_to_device_batch: config.features.e2ee.max_to_device_batch,
+        max_to_device_bytes: config.features.e2ee.max_to_device_bytes,
+        max_attachments: config.features.limits.default.message_attachments as usize * 2,
+        max_request_bytes: config.features.e2ee.max_request_bytes,
+    };
+
     Ok(Json(RevoltConfig {
         stoat: env!("CARGO_PKG_VERSION").to_string(),
         revolt: env!("CARGO_PKG_VERSION").to_string(),
@@ -248,6 +285,7 @@ pub async fn root() -> Result<Json<RevoltConfig>> {
                 privacy_policy: config.features.legal_links.privacy_policy,
                 guidelines: config.features.legal_links.guidelines,
             },
+            e2ee,
         },
         ws: config.hosts.events,
         app: config.hosts.app,
@@ -265,6 +303,31 @@ mod test {
         let harness = crate::util::test::TestHarness::new().await;
         let response = harness.client.get("/").dispatch().await;
         assert_eq!(response.status(), Status::Ok);
+    }
+
+    #[rocket::async_test]
+    async fn e2ee_feature() {
+        let harness = crate::util::test::TestHarness::new().await;
+        let response = harness.client.get("/").dispatch().await;
+        let body: serde_json::Value = response.into_json().await.unwrap();
+
+        // Revolt.test.toml enables E2EE, the rest are defaults
+        assert_eq!(
+            body["features"]["e2ee"],
+            json!({
+                "enabled": true,
+                "envelope_versions": [1],
+                "max_envelope_bytes": 16_384,
+                "default_for_new_dms": false,
+                "max_to_device_batch": 1_000,
+                "max_to_device_bytes": 65_536,
+                "max_attachments": body["features"]["limits"]["default"]["message_attachments"]
+                    .as_u64()
+                    .unwrap()
+                    * 2,
+                "max_request_bytes": 4_194_304
+            })
+        );
     }
 
     #[rocket::async_test]
