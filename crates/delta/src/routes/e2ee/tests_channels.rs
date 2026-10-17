@@ -333,3 +333,47 @@ async fn new_dms_unencrypted_by_default() {
         .unwrap();
     assert!(!channel.is_encrypted());
 }
+
+/// Enabling encryption leaves an `encryption_enabled` system message
+#[rocket::async_test]
+async fn encryption_enabled_message() {
+    let harness = TestHarness::new().await;
+    let (_, session, user) = harness.new_user().await;
+    let (_, _, other) = harness.new_user().await;
+    let channel = group(&harness, &user, &[&other]).await;
+    let mut events = PubSubTestHelper::new(channel.id()).await;
+
+    let (status, _) = encrypt(&harness, &session, channel.id()).await;
+    assert_eq!(status, Status::Ok);
+
+    let message = tokio::time::timeout(Duration::from_secs(5), events.wait_for_message())
+        .await
+        .expect("`Message`");
+    assert_eq!(
+        message.system,
+        Some(v0::SystemMessage::EncryptionEnabled {
+            by: user.id.clone()
+        })
+    );
+    assert!(message.content.is_none() && message.encrypted.is_none());
+
+    let (status, body) = request(
+        &harness,
+        Method::Get,
+        &session,
+        &format!("/channels/{}/messages?include_users=true", channel.id()),
+        None,
+    )
+    .await;
+    assert_eq!(status, Status::Ok);
+    assert_eq!(body["messages"][0]["system"]["type"], "encryption_enabled");
+    assert_eq!(body["messages"][0]["system"]["by"], user.id.as_str());
+    assert!(
+        body["users"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["_id"] == user.id.as_str()),
+        "{body}"
+    );
+}

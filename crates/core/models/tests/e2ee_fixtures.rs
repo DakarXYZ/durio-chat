@@ -288,3 +288,17 @@ fn message_and_channel_fields_are_optional() {
     });
     round_trip::<Channel>(&group);
 }
+
+/// `{"type": "encryption_enabled", "by"}`, old clients show it as an unknown system message
+#[test]
+fn system_message_encryption_enabled() {
+    let message: SystemMessage = round_trip(&json!({
+        "type": "encryption_enabled",
+        "by": "01KZ0000000000000000000001"
+    }));
+
+    assert_eq!(
+        String::from(message),
+        "End-to-end encryption enabled.".to_string()
+    );
+}

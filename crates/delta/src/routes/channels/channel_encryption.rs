@@ -1,5 +1,5 @@
 use revolt_database::{
-    Database,
+    AMQP, Database,
     util::{permissions::DatabasePermissionQuery, reference::Reference},
 };
 use revolt_models::v0::{self, E2EE_ALGORITHM_MEGOLM};
@@ -19,6 +19,7 @@ use crate::routes::e2ee::E2eeSession;
 #[put("/<target>/encryption", data = "<data>")]
 pub async fn enable_encryption(
     db: &State<Database>,
+    amqp: &State<AMQP>,
     e2ee: E2eeSession,
     target: Reference<'_>,
     data: Json<v0::DataChannelEncryption>,
@@ -35,7 +36,9 @@ pub async fn enable_encryption(
         .await
         .throw_if_lacking_channel_permission(ChannelPermission::ManageChannel)?;
 
-    channel.enable_encryption(db, &e2ee.user).await?;
+    channel
+        .enable_encryption(db, Some(amqp), &e2ee.user)
+        .await?;
 
     Ok(Json(channel.into()))
 }

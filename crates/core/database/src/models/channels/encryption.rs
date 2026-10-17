@@ -1,10 +1,10 @@
 //! End-to-end encryption of direct messages and groups (dur.io fork)
 use iso8601_timestamp::Timestamp;
 use revolt_config::config;
-use revolt_models::v0::{self, ChannelEncryption, E2EE_ALGORITHM_MEGOLM};
+use revolt_models::v0::{self, ChannelEncryption, E2EE_ALGORITHM_MEGOLM, MessageAuthor};
 use revolt_result::Result;
 
-use crate::{Channel, Database, User, events::client::EventV1};
+use crate::{AMQP, Channel, Database, SystemMessage, User, events::client::EventV1};
 
 impl Channel {
     /// Encryption settings, if this channel is encrypted
@@ -48,8 +48,14 @@ impl Channel {
     /// Enable end-to-end encryption, cannot be undone
     ///
     /// Only direct messages and groups without bots and webhooks can be encrypted.
-    /// Permissions are checked by the caller.
-    pub async fn enable_encryption(&mut self, db: &Database, by: &User) -> Result<()> {
+    /// Permissions are checked by the caller. Announced with a `ChannelUpdate`
+    /// and an `encryption_enabled` system message.
+    pub async fn enable_encryption(
+        &mut self,
+        db: &Database,
+        amqp: Option<&AMQP>,
+        by: &User,
+    ) -> Result<()> {
         let recipients = match self {
             Channel::DirectMessage {
                 recipients,
@@ -101,8 +107,28 @@ impl Channel {
             },
             clear: vec![],
         }
-        .p(id)
+        .p(id.clone())
         .await;
+
+        // Sent after the write: the channel already counts as encrypted
+        SystemMessage::EncryptionEnabled {
+            by: by.id.to_string(),
+        }
+        .into_message(id)
+        .send(
+            db,
+            amqp,
+            MessageAuthor::System {
+                username: &by.username,
+                avatar: by.avatar.as_ref().map(|file| file.id.as_ref()),
+            },
+            None,
+            None,
+            self,
+            false,
+        )
+        .await
+        .ok();
 
         Ok(())
     }

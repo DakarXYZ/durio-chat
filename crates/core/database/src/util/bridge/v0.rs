@@ -610,6 +610,7 @@ impl From<crate::SystemMessage> for SystemMessage {
             crate::SystemMessage::CallStarted { by, finished_at } => {
                 Self::CallStarted { by, finished_at }
             }
+            crate::SystemMessage::EncryptionEnabled { by } => Self::EncryptionEnabled { by },
         }
     }
 }

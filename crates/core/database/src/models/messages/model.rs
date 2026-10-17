@@ -119,6 +119,9 @@ auto_derived!(
             by: String,
             finished_at: Option<Timestamp>,
         },
+        /// End-to-end encryption was enabled (dur.io fork)
+        #[serde(rename = "encryption_enabled")]
+        EncryptionEnabled { by: String },
     }
 
     /// Name and / or avatar override information
@@ -875,6 +878,7 @@ impl Message {
                                 users.push(by.clone());
                             }
                             v0::SystemMessage::CallStarted { by, .. } => users.push(by.clone()),
+                            v0::SystemMessage::EncryptionEnabled { by } => users.push(by.clone()),
                         }
                     }
                     users

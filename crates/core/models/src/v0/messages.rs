@@ -142,6 +142,9 @@ auto_derived!(
             by: String,
             finished_at: Option<Timestamp>,
         },
+        /// End-to-end encryption was enabled (dur.io fork)
+        #[serde(rename = "encryption_enabled")]
+        EncryptionEnabled { by: String },
     }
 
     /// Name and / or avatar override information
@@ -469,6 +472,7 @@ impl From<SystemMessage> for String {
             SystemMessage::MessagePinned { .. } => "Message pinned.".to_string(),
             SystemMessage::MessageUnpinned { .. } => "Message unpinned.".to_string(),
             SystemMessage::CallStarted { .. } => "Call started.".to_string(),
+            SystemMessage::EncryptionEnabled { .. } => "End-to-end encryption enabled.".to_string(),
         }
     }
 }
