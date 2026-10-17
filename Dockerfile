@@ -45,3 +45,7 @@ RUN sh /tmp/build-image-layer.sh deps
 # Build all apps
 COPY crates ./crates
 RUN sh /tmp/build-image-layer.sh apps
+
+# durio: healthcheck probe for distroless service images (SH-14)
+COPY scripts/durio/healthcheck.rs /tmp/healthcheck.rs
+RUN rustc -O --edition 2021 -o /home/rust/src/target/release/healthcheck /tmp/healthcheck.rs
