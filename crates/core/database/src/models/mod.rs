@@ -8,6 +8,7 @@ mod channel_unreads;
 mod channel_webhooks;
 mod channels;
 mod discover_requests;
+mod e2ee;
 mod emojis;
 mod file_hashes;
 mod files;
@@ -34,6 +35,7 @@ pub use channel_unreads::*;
 pub use channel_webhooks::*;
 pub use channels::*;
 pub use discover_requests::*;
+pub use e2ee::*;
 pub use emojis::*;
 pub use file_hashes::*;
 pub use files::*;
@@ -83,6 +85,7 @@ pub trait AbstractDatabase:
     + sessions::AbstractSessions
     + mfa_tickets::AbstractMFATickets
     + discover_requests::AbstractDiscoverRequest
+    + e2ee::AbstractE2ee
 {
 }
 
