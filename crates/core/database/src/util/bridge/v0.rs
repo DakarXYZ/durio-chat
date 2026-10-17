@@ -539,7 +539,7 @@ impl crate::Message {
             user,
             member,
             webhook: self.webhook,
-            content: self.content,
+            content: crate::util::e2ee::legacy_content(self.content, self.encrypted.is_some()),
             encrypted: self.encrypted,
             system: self.system.map(Into::into),
             attachments: self
@@ -569,7 +569,7 @@ impl From<crate::PartialMessage> for PartialMessage {
             user: None,
             member: None,
             webhook: value.webhook,
-            content: value.content,
+            content: crate::util::e2ee::legacy_content(value.content, value.encrypted.is_some()),
             encrypted: value.encrypted,
             system: value.system.map(Into::into),
             attachments: value

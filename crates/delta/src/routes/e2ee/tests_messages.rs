@@ -1,5 +1,10 @@
 //! Encrypted messages (BE-13 … BE-19)
-use revolt_database::{Channel, File, Message, Metadata, Session, User};
+use std::time::Duration;
+
+use revolt_database::{
+    Channel, File, Message, Metadata, Session, User, events::client::EventV1,
+    util::e2ee::legacy_placeholder,
+};
 use revolt_models::v0;
 use revolt_result::ErrorType;
 use rocket::http::{Method, Status};
@@ -7,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::tests::{error_type, request};
 use super::tests_channels::{encrypt, friendly_dm, group};
-use crate::util::test::TestHarness;
+use crate::util::test::{PubSubTestHelper, TestHarness};
 
 /// Envelope v1 of a device (fake ciphertext, the server does not decrypt)
 pub fn envelope(device_id: &str, ciphertext: &str) -> Value {
@@ -676,4 +681,99 @@ async fn search_disabled() {
     let pinned = body.as_array().expect("messages");
     assert_eq!(pinned.len(), 1, "{body}");
     assert_eq!(pinned[0]["_id"], message["_id"]);
+}
+
+/// Old clients see the placeholder as content, new clients the envelope as well
+#[rocket::async_test]
+async fn legacy_placeholder_content() {
+    let harness = TestHarness::new().await;
+    let dm = encrypted_dm(&harness).await;
+    let placeholder = revolt_config::config()
+        .await
+        .features
+        .e2ee
+        .legacy_placeholder;
+    assert_eq!(legacy_placeholder(), placeholder);
+    let mut events = PubSubTestHelper::new(dm.channel.id()).await;
+
+    let sent = envelope(&dm.session.id, "cipher");
+    let (status, body) = send(
+        &harness,
+        &dm.session,
+        dm.channel.id(),
+        json!({ "encrypted": sent }),
+    )
+    .await;
+    assert_eq!(status, Status::Ok);
+    assert_eq!(body["content"], placeholder.as_str());
+    assert_eq!(body["encrypted"], sent);
+    let id = body["_id"].as_str().unwrap().to_string();
+
+    let event = tokio::time::timeout(Duration::from_secs(5), events.wait_for_message())
+        .await
+        .expect("`Message`");
+    assert_eq!(event.content.as_deref(), Some(placeholder.as_str()));
+    assert!(event.encrypted.is_some());
+
+    let (status, body) = request(
+        &harness,
+        Method::Get,
+        &dm.other_session,
+        &format!("/channels/{}/messages", dm.channel.id()),
+        None,
+    )
+    .await;
+    assert_eq!(status, Status::Ok);
+    let fetched = body
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|message| message["_id"] == id.as_str())
+        .expect("message");
+    assert_eq!(fetched["content"], placeholder.as_str());
+    assert_eq!(fetched["encrypted"], sent);
+
+    let (status, body) = request(
+        &harness,
+        Method::Get,
+        &dm.other_session,
+        &format!("/channels/{}/messages/{id}", dm.channel.id()),
+        None,
+    )
+    .await;
+    assert_eq!(status, Status::Ok);
+    assert_eq!(body["content"], placeholder.as_str());
+
+    let (status, _) = edit(
+        &harness,
+        &dm.session,
+        dm.channel.id(),
+        &id,
+        json!({ "encrypted": envelope(&dm.session.id, "edited") }),
+    )
+    .await;
+    assert_eq!(status, Status::Ok);
+
+    let update = tokio::time::timeout(
+        Duration::from_secs(5),
+        events.wait_for_event(|event| matches!(event, EventV1::MessageUpdate { .. })),
+    )
+    .await
+    .expect("`MessageUpdate`");
+    let EventV1::MessageUpdate { data, .. } = update else {
+        unreachable!()
+    };
+    assert_eq!(data.content.as_deref(), Some(placeholder.as_str()));
+    assert_eq!(data.encrypted.unwrap().ciphertext, "edited");
+
+    // Never stored
+    assert!(
+        harness
+            .db
+            .fetch_message(&id)
+            .await
+            .unwrap()
+            .content
+            .is_none()
+    );
 }

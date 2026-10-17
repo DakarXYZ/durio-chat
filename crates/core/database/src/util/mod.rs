@@ -3,6 +3,7 @@ pub mod bridge;
 pub mod bulk_permissions;
 pub mod captcha;
 pub mod chunked;
+pub mod e2ee;
 pub mod email;
 mod funcs;
 pub mod idempotency;

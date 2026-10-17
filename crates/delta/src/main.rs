@@ -27,6 +27,11 @@ pub async fn web() -> Rocket<Build> {
     // Ensure environment variables are present
     config.preflight_checks();
 
+    // dur.io fork: text old clients show in place of encrypted messages
+    revolt_database::util::e2ee::set_legacy_placeholder(
+        config.features.e2ee.legacy_placeholder.clone(),
+    );
+
     // Setup database
     let db = revolt_database::DatabaseInfo::Auto.connect().await.unwrap();
     db.migrate_database().await.unwrap();
