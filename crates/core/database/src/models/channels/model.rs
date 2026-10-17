@@ -354,6 +354,11 @@ impl Channel {
         user: &User,
         by_id: &str,
     ) -> Result<()> {
+        // dur.io fork: bots have no devices to share keys with
+        if user.bot.is_some() && self.is_encrypted() {
+            return Err(create_error!(NotEncryptable));
+        }
+
         if let Channel::Group { recipients, .. } = self {
             if recipients.contains(&String::from(&user.id)) {
                 return Err(create_error!(AlreadyInGroup));

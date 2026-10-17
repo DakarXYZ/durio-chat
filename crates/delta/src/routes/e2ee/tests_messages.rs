@@ -777,3 +777,124 @@ async fn legacy_placeholder_content() {
             .is_none()
     );
 }
+
+/// Bots cannot join an encrypted group, through any route
+#[rocket::async_test]
+async fn bots_kept_out() {
+    let harness = TestHarness::new().await;
+    let (_, session, owner) = harness.new_user().await;
+    let (_, _, member) = harness.new_user().await;
+    let (bot, bot_user) = harness.new_bot(&owner).await;
+    let channel = group(&harness, &owner, &[&member]).await;
+
+    let (status, _) = encrypt(&harness, &session, channel.id()).await;
+    assert_eq!(status, Status::Ok);
+
+    let (status, body) = request(
+        &harness,
+        Method::Post,
+        &session,
+        &format!("/bots/{}/invite", bot.id),
+        Some(json!({ "group": channel.id() })),
+    )
+    .await;
+    assert_eq!(status, Status::BadRequest);
+    assert!(matches!(error_type(body), ErrorType::NotEncryptable));
+
+    // The same check guards group_add_member and invites
+    let mut channel = harness.db.fetch_channel(channel.id()).await.unwrap();
+    let error = channel
+        .add_user_to_group(&harness.db, &harness.amqp, &bot_user, &owner.id)
+        .await
+        .unwrap_err();
+    assert!(matches!(error.error_type, ErrorType::NotEncryptable));
+
+    let recipients = match harness.db.fetch_channel(channel.id()).await.unwrap() {
+        Channel::Group { recipients, .. } => recipients,
+        _ => unreachable!(),
+    };
+    assert!(!recipients.contains(&bot_user.id));
+
+    // People can still be added
+    let (_, _, newcomer) = harness.new_user().await;
+    channel
+        .add_user_to_group(&harness.db, &harness.amqp, &newcomer, &owner.id)
+        .await
+        .unwrap();
+}
+
+/// Webhooks can neither be created in nor post to encrypted channels
+#[rocket::async_test]
+async fn webhooks_kept_out() {
+    let harness = TestHarness::new().await;
+    let (_, session, owner) = harness.new_user().await;
+    let (_, _, member) = harness.new_user().await;
+
+    let encrypted = group(&harness, &owner, &[&member]).await;
+    let (status, _) = encrypt(&harness, &session, encrypted.id()).await;
+    assert_eq!(status, Status::Ok);
+
+    let (status, body) = request(
+        &harness,
+        Method::Post,
+        &session,
+        &format!("/channels/{}/webhooks", encrypted.id()),
+        Some(json!({ "name": "Hook" })),
+    )
+    .await;
+    assert_eq!(status, Status::BadRequest, "{body}");
+    assert!(matches!(error_type(body), ErrorType::NotEncryptable));
+
+    // A webhook from before encryption (only possible by writing to the database directly)
+    let channel = group(&harness, &owner, &[&member]).await;
+    let (status, webhook) = request(
+        &harness,
+        Method::Post,
+        &session,
+        &format!("/channels/{}/webhooks", channel.id()),
+        Some(json!({ "name": "Hook" })),
+    )
+    .await;
+    assert_eq!(status, Status::Ok, "{webhook}");
+    let hook = format!(
+        "/webhooks/{}/{}",
+        webhook["id"].as_str().unwrap(),
+        webhook["token"].as_str().unwrap()
+    );
+
+    let (status, message) = request(
+        &harness,
+        Method::Post,
+        &session,
+        &hook,
+        Some(json!({ "content": "before" })),
+    )
+    .await;
+    assert_eq!(status, Status::Ok, "{message}");
+
+    assert!(
+        harness
+            .db
+            .set_channel_encryption(channel.id(), &Channel::new_encryption(&owner.id))
+            .await
+            .unwrap()
+    );
+
+    for body in [
+        json!({ "content": "after" }),
+        json!({ "encrypted": envelope(&session.id, "cipher") }),
+    ] {
+        let (status, response) = request(&harness, Method::Post, &session, &hook, Some(body)).await;
+        assert_violation(status, response);
+    }
+
+    let (status, response) = request(
+        &harness,
+        Method::Patch,
+        &session,
+        &format!("{hook}/{}", message["_id"].as_str().unwrap()),
+        Some(json!({ "content": "edited" })),
+    )
+    .await;
+    assert_violation(status, response);
+}

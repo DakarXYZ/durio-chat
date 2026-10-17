@@ -44,6 +44,11 @@ pub async fn create_webhook(
         .await
         .throw_if_lacking_channel_permission(ChannelPermission::ManageWebhooks)?;
 
+    // dur.io fork: webhooks post plain text
+    if channel.is_encrypted() {
+        return Err(create_error!(NotEncryptable));
+    }
+
     let webhook_id = Ulid::new().to_string();
 
     let avatar = match &data.avatar {
