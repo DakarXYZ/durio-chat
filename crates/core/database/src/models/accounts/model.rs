@@ -630,6 +630,7 @@ impl Account {
     ) -> Result<()> {
         db.delete_all_sessions(&self.id, exclude_session_id.clone())
             .await?;
+        crate::e2ee_on_sessions_deleted(db, &self.id, None, exclude_session_id.as_deref()).await;
 
         // Create and push event
         EventV1::DeleteAllSessions {

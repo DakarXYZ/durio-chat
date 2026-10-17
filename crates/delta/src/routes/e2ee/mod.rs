@@ -25,6 +25,8 @@ mod to_device_send;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_cascade;
 
 pub use guard::E2eeSession;
 

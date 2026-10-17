@@ -54,6 +54,7 @@ impl Session {
     pub async fn delete(self, db: &Database) -> Result<()> {
         // Delete from database
         db.delete_session(&self.id).await?;
+        crate::e2ee_on_sessions_deleted(db, &self.user_id, Some(&self.id), None).await;
 
         // Create and push event
         EventV1::DeleteSession {
