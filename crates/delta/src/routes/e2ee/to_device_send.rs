@@ -408,6 +408,46 @@ mod tests {
         assert_eq!(body["messages"].as_array().unwrap().len(), 2);
     }
 
+    /// The JSON limit is raised to `max_request_bytes` (4 MiB) for large batches (BE-29)
+    #[rocket::async_test]
+    async fn large_batch() {
+        let harness = TestHarness::new().await;
+        let (account, session, user) = new_device_user(&harness).await;
+        let second = new_device(&harness, &account).await;
+
+        // Over 3 MiB: 50 contents of 64 000 bytes, one of them for a real device
+        let content = json!({ "data": "x".repeat(64_000) });
+        let mut devices: serde_json::Map<String, Value> = (0..49)
+            .map(|n| (format!("UNKNOWN{n}"), content.clone()))
+            .collect();
+        devices.insert(second.id.clone(), content.clone());
+
+        let body = json!({
+            "type": "m.dummy",
+            "messages": { e2ee_user_id(&user.id): devices }
+        });
+        assert!(body.to_string().len() > 3 * 1024 * 1024);
+
+        let (status, _) = put(&harness, &session, "large", body).await;
+        assert_eq!(status, Status::Ok);
+
+        let (_, body) = get(&harness, &second, "/e2ee/to_device").await;
+        assert_eq!(body["messages"][0]["content"], content);
+
+        // Above the limit the body is rejected before the route
+        let devices: serde_json::Map<String, Value> = (0..70)
+            .map(|n| (format!("UNKNOWN{n}"), content.clone()))
+            .collect();
+        let (status, _) = put(
+            &harness,
+            &session,
+            "too-large",
+            json!({ "type": "m.dummy", "messages": { e2ee_user_id(&user.id): devices } }),
+        )
+        .await;
+        assert_eq!(status, Status::PayloadTooLarge);
+    }
+
     #[rocket::async_test]
     async fn invalid_requests() {
         let harness = TestHarness::new().await;

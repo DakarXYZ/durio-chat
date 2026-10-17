@@ -79,6 +79,9 @@ pub async fn web() -> Rocket<Build> {
     // Ratelimits
     let ratelimits = ratelimiter::RatelimitStorage::new(util::ratelimits::DeltaRatelimits);
 
+    // dur.io fork: /e2ee batches (to-device, key backup) exceed Rocket's 1 MiB JSON default
+    let json_limit = config.features.e2ee.max_request_bytes;
+
     routes::mount(config, rocket)
         .attach(prometheus.clone())
         .mount("/metrics", prometheus)
@@ -93,7 +96,9 @@ pub async fn web() -> Rocket<Build> {
         .attach(ratelimiter::RatelimitFairing)
         .attach(cors)
         .configure(rocket::Config {
-            limits: rocket::data::Limits::default().limit("string", 5.megabytes()),
+            limits: rocket::data::Limits::default()
+                .limit("string", 5.megabytes())
+                .limit("json", json_limit.bytes()),
             address: Ipv4Addr::new(0, 0, 0, 0).into(),
             port: 14702,
             ip_header: Some("X-Forwarded-For".into()),
