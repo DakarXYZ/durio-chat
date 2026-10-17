@@ -16,7 +16,7 @@ concurrency:
 jobs:
   cleanup:
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork }}
+    if: github.repository_owner == 'stoatchat' && (!github.event.pull_request.head.repo.fork)
     strategy:
       fail-fast: false
       matrix:

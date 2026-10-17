@@ -8,6 +8,7 @@ on:
     - cron: '0/15 * * * *'
 jobs:
   renovate:
+    if: github.repository_owner == 'stoatchat'
     runs-on: ubuntu-latest
     steps:
       - id: app-token

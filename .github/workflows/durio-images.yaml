@@ -1,0 +1,128 @@
+name: durio images
+
+# Our fork's image pipeline (BE-00, SH-02). Upstream docker.yaml is guarded to stoatchat only.
+# Tag v0.16.0-fork.N -> ghcr.io/<owner>/durio-<service>:0.16.0-fork.N (amd64 only).
+
+on:
+  push:
+    tags:
+      - "v*-fork.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: durio-images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  base:
+    name: Build base image
+    if: github.repository_owner != 'stoatchat'
+    runs-on: ubuntu-latest
+    outputs:
+      owner: ${{ steps.owner.outputs.owner }}
+      base: ${{ steps.owner.outputs.base }}
+    steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+
+      - uses: actions/checkout@v4
+
+      - name: Lowercase owner
+        id: owner
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "owner=$owner" >> "$GITHUB_OUTPUT"
+          echo "base=ghcr.io/$owner/durio-base:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push base
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.owner.outputs.base }}
+          cache-from: type=registry,ref=ghcr.io/${{ steps.owner.outputs.owner }}/durio-buildcache:base
+          cache-to: type=registry,ref=ghcr.io/${{ steps.owner.outputs.owner }}/durio-buildcache:base,mode=max
+
+  services:
+    name: Build ${{ matrix.image }}
+    needs: base
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { image: api, file: crates/delta/Dockerfile }
+          - { image: events, file: crates/bonfire/Dockerfile }
+          - { image: file-server, file: crates/services/autumn/Dockerfile }
+          - { image: proxy, file: crates/services/january/Dockerfile }
+          - { image: gifbox, file: crates/services/gifbox/Dockerfile }
+          - { image: crond, file: crates/daemons/crond/Dockerfile }
+          - { image: pushd, file: crates/daemons/pushd/Dockerfile }
+          - { image: voice-ingress, file: crates/daemons/voice-ingress/Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ needs.base.outputs.owner }}/durio-${{ matrix.image }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          file: ${{ matrix.file }}
+          build-args: |
+            BASE_IMAGE=${{ needs.base.outputs.base }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  smoke:
+    name: Smoke test
+    needs: [base, services]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start api with dependencies
+        run: |
+          # metadata-action type=sha tags with the short sha
+          export DURIO_API_IMAGE="ghcr.io/${{ needs.base.outputs.owner }}/durio-api:sha-${GITHUB_SHA::7}"
+          docker compose -f .github/durio/compose.smoke.yml up -d --wait
+
+      - name: Check reported version
+        run: ./scripts/durio/smoke-version.sh "http://localhost:14702/" "${GITHUB_REF_NAME}"
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f .github/durio/compose.smoke.yml logs

@@ -1,0 +1,36 @@
+# Minimal stack to check that a freshly built api image starts and reports our version.
+# Used by .github/workflows/durio-images.yaml and scripts/durio/build-images.sh --smoke.
+name: durio-smoke
+
+services:
+  database:
+    image: docker.io/mongo:8
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: docker.io/valkey/valkey:9-alpine
+
+  rabbit:
+    image: docker.io/rabbitmq:4
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbituser
+      RABBITMQ_DEFAULT_PASS: rabbitpass
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      retries: 30
+
+  api:
+    image: ${DURIO_API_IMAGE:?set DURIO_API_IMAGE}
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbit:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:14702:14702"

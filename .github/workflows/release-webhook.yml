@@ -11,6 +11,7 @@ on:
 jobs:
   release-webhook:
     name: Send Release Webhook
+    if: github.repository_owner == 'stoatchat'
     runs-on: ubuntu-latest
 
     steps:

@@ -10,7 +10,8 @@ jobs:
   backport:
     name: Backport pull request
     if: >-
-      ${{ github.event.pull_request.merged
+      ${{ github.repository_owner == 'stoatchat'
+      && github.event.pull_request.merged
       && contains(join(github.event.pull_request.labels.*.name, ' '), 'backport:release/') }}
     runs-on: ubuntu-latest
     steps:

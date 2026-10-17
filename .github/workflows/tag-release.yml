@@ -8,6 +8,7 @@ permissions: {}
 jobs:
   tag:
     name: Tag release
+    if: github.repository_owner == 'stoatchat'
     runs-on: ubuntu-latest
     steps:
       - name: Check this is a release branch

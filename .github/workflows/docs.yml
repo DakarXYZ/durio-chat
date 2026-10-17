@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     name: Build Docusaurus
+    if: github.repository_owner == 'stoatchat'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -31,6 +32,7 @@ jobs:
 
   deploy:
     name: Deploy to GitHub Pages
+    if: github.repository_owner == 'stoatchat'
     needs: build
 
     permissions:
