@@ -342,6 +342,38 @@ process_message_delay_limit = 5
 # Higher numbers result in more deduplication but more ram usage.
 seen_events_cache_size = 2048
 
+[features.e2ee]
+# End-to-end encryption in direct messages and groups.
+# Changing any value requires restarting all backend services.
+# Do not disable after enabling: encrypted conversations become read-only.
+enabled = false
+# Encrypt new direct messages from the start (groups are only encrypted manually)
+default_for_new_dms = false
+# Maximum size of an encrypted message envelope ciphertext (bytes)
+max_envelope_bytes = 16_384
+# Maximum size of a single to-device message content (bytes)
+max_to_device_bytes = 65_536
+# Maximum number of to-device messages in a single request
+max_to_device_batch = 1_000
+# Maximum number of one-time keys stored per device
+max_otk_per_device = 100
+# Maximum number of undelivered to-device messages per device
+max_pending_to_device = 10_000
+# Number of days after which undelivered to-device messages are dropped
+to_device_ttl_days = 30
+# Shown by clients without E2EE support in place of an encrypted message
+legacy_placeholder = "🔒 Зашифрованное сообщение. Обновите приложение."
+# Maximum size of a single key in the key backup (bytes)
+max_backup_key_bytes = 4_096
+# Maximum size of a single secret storage entry (bytes)
+max_secret_bytes = 16_384
+# Maximum number of users or devices in a single key query or claim
+max_devices_per_request = 256
+# Notify the device when its one-time key count drops below this
+otk_low_threshold = 10
+# Maximum JSON request body size accepted by the API (bytes)
+max_request_bytes = 4_194_304
+
 [features.legal_links]
 # URLs for legal documents
 terms_of_service = ""

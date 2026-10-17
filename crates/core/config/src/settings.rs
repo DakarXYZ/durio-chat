@@ -410,6 +410,9 @@ pub struct Features {
 
     #[serde(default)]
     pub advanced: FeaturesAdvanced,
+
+    #[serde(default)]
+    pub e2ee: crate::FeaturesE2ee,
 }
 
 #[derive(Deserialize, Debug, Clone)]

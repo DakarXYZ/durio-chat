@@ -13,6 +13,9 @@ password = "rabbitpass"
 [features]
 webhooks_enabled = true
 
+[features.e2ee]
+enabled = true
+
 [api.smtp]
 host = "localhost"
 username = "smtp"
