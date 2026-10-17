@@ -1,6 +1,6 @@
 use revolt_result::Result;
 
-use crate::{FieldsUser, PartialUser, RelationshipStatus, User};
+use crate::{Channel, FieldsUser, MemberCompositeKey, PartialUser, RelationshipStatus, User};
 use crate::{ReferenceDb, Relationship};
 
 use super::AbstractUsers;
@@ -66,18 +66,53 @@ impl AbstractUsers for ReferenceDb {
     }
 
     /// Fetch ids of users that both users are friends with
-    async fn fetch_mutual_user_ids(&self, _user_a: &str, _user_b: &str) -> Result<Vec<String>> {
-        todo!()
+    async fn fetch_mutual_user_ids(&self, user_a: &str, user_b: &str) -> Result<Vec<String>> {
+        let is_friend = |user: &User, id: &str| {
+            user.relations.as_ref().is_some_and(|relations| {
+                relations.iter().any(|relationship| {
+                    relationship.id == id && relationship.status == RelationshipStatus::Friend
+                })
+            })
+        };
+
+        let users = self.users.lock().await;
+        Ok(users
+            .values()
+            .filter(|user| is_friend(user, user_a) && is_friend(user, user_b))
+            .map(|user| user.id.clone())
+            .collect())
     }
 
     /// Fetch ids of channels that both users are in
-    async fn fetch_mutual_channel_ids(&self, _user_a: &str, _user_b: &str) -> Result<Vec<String>> {
-        todo!()
+    async fn fetch_mutual_channel_ids(&self, user_a: &str, user_b: &str) -> Result<Vec<String>> {
+        let channels = self.channels.lock().await;
+        Ok(channels
+            .values()
+            .filter(|channel| match channel {
+                Channel::DirectMessage { recipients, .. } | Channel::Group { recipients, .. } => {
+                    recipients.iter().any(|id| id == user_a)
+                        && recipients.iter().any(|id| id == user_b)
+                }
+                _ => false,
+            })
+            .map(|channel| channel.id().to_string())
+            .collect())
     }
 
     /// Fetch ids of servers that both users share
-    async fn fetch_mutual_server_ids(&self, _user_a: &str, _user_b: &str) -> Result<Vec<String>> {
-        todo!()
+    async fn fetch_mutual_server_ids(&self, user_a: &str, user_b: &str) -> Result<Vec<String>> {
+        let members = self.server_members.lock().await;
+        Ok(members
+            .keys()
+            .filter(|key| {
+                key.user == user_a
+                    && members.contains_key(&MemberCompositeKey {
+                        server: key.server.clone(),
+                        user: user_b.to_string(),
+                    })
+            })
+            .map(|key| key.server.clone())
+            .collect())
     }
 
     /// Update a user by their id given some data
