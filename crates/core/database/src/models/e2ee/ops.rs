@@ -5,7 +5,7 @@ use revolt_result::Result;
 
 use crate::{
     E2eeBackupKey, E2eeBackupVersion, E2eeClaimedKey, E2eeDevice, E2eeFallbackKey, E2eeOneTimeKey,
-    E2eeToDeviceMessage,
+    E2eeToDeviceMessage, File,
 };
 
 #[cfg(feature = "mongodb")]
@@ -170,4 +170,18 @@ pub trait AbstractE2ee: Sync + Send {
         channel_id: &str,
         encryption: &ChannelEncryption,
     ) -> Result<bool>;
+
+    // ? Attachments
+
+    /// Atomically mark an unused message attachment as used by `message_id`
+    ///
+    /// Only files whose `encrypted` flag matches are found: encrypted channels take only
+    /// encrypted blobs, plain channels never take them. Fails with `NotFound` otherwise.
+    async fn use_message_attachment(
+        &self,
+        id: &str,
+        encrypted: bool,
+        message_id: &str,
+        uploader_id: &str,
+    ) -> Result<File>;
 }

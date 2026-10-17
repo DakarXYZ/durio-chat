@@ -695,3 +695,78 @@ async fn to_device_idempotency() {
         assert_eq!(dates, 3);
     }
 }
+
+fn attachment(id: &str, tag: &str, encrypted: bool) -> crate::File {
+    crate::File {
+        id: id.to_string(),
+        tag: tag.to_string(),
+        filename: "file.bin".to_string(),
+        hash: Some("hash".to_string()),
+        uploaded_at: Some(Timestamp::now_utc()),
+        uploader_id: Some("A".to_string()),
+        used_for: None,
+        deleted: None,
+        reported: None,
+        encrypted: encrypted.then_some(true),
+        metadata: crate::Metadata::File,
+        content_type: "application/octet-stream".to_string(),
+        size: 1,
+        message_id: None,
+        user_id: None,
+        server_id: None,
+        object_id: None,
+    }
+}
+
+#[tokio::test]
+async fn message_attachments() {
+    let db = test_db("message_attachments").await;
+
+    #[allow(clippy::disallowed_methods)]
+    for file in [
+        attachment("ENCRYPTED", "attachments", true),
+        attachment("PLAIN", "attachments", false),
+        attachment("AVATAR", "avatars", false),
+    ] {
+        db.insert_attachment(&file).await.unwrap();
+    }
+
+    // The encrypted flag has to match the channel
+    for (id, encrypted) in [("ENCRYPTED", false), ("PLAIN", true), ("AVATAR", false)] {
+        assert!(
+            db.use_message_attachment(id, encrypted, "MESSAGE", "A")
+                .await
+                .is_err(),
+            "{id}"
+        );
+    }
+
+    let file = db
+        .use_message_attachment("ENCRYPTED", true, "MESSAGE", "B")
+        .await
+        .unwrap();
+    assert_eq!(file.encrypted, Some(true));
+    assert_eq!(file.uploader_id.as_deref(), Some("B"));
+    assert_eq!(
+        file.used_for.as_ref().map(|used| &used.id),
+        Some(&"MESSAGE".to_string())
+    );
+
+    let plain = db
+        .use_message_attachment("PLAIN", false, "MESSAGE", "A")
+        .await
+        .unwrap();
+    assert_eq!(plain.encrypted, None);
+
+    // Each file is used once
+    assert!(
+        db.use_message_attachment("ENCRYPTED", true, "OTHER", "A")
+            .await
+            .is_err()
+    );
+    assert!(
+        db.use_message_attachment("PLAIN", false, "OTHER", "A")
+            .await
+            .is_err()
+    );
+}

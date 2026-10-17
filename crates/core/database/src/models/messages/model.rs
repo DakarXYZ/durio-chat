@@ -609,9 +609,17 @@ impl Message {
             }));
         }
 
+        // dur.io fork: encrypted channels take only encrypted blobs and vice versa
         for attachment_id in data.attachments.as_deref().unwrap_or_default() {
-            attachments
-                .push(File::use_attachment(db, attachment_id, &message_id, author.id()).await?);
+            attachments.push(
+                db.use_message_attachment(
+                    attachment_id,
+                    channel.is_encrypted(),
+                    &message_id,
+                    author.id(),
+                )
+                .await?,
+            );
         }
 
         if !attachments.is_empty() {

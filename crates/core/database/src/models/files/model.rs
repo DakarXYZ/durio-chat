@@ -32,6 +32,9 @@ auto_derived_partial!(
         /// Whether this file was reported
         #[serde(skip_serializing_if = "Option::is_none")]
         pub reported: Option<bool>,
+        /// Whether this file is an end-to-end encrypted blob (dur.io fork)
+        #[serde(skip_serializing_if = "crate::if_option_false")]
+        pub encrypted: Option<bool>,
 
         // !!! DEPRECATED:
         /// Parsed metadata of this file

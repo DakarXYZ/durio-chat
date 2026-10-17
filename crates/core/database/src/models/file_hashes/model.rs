@@ -77,6 +77,7 @@ impl FileHash {
 
             deleted: None,
             reported: None,
+            encrypted: None,
 
             // TODO: remove this data
             metadata: self.metadata.clone(),

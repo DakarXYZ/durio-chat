@@ -1026,6 +1026,7 @@ mod tests {
                 used_for: None,
                 deleted: None,
                 reported: None,
+                encrypted: None,
                 metadata: Metadata::Image {
                     width: 100,
                     height: 100,

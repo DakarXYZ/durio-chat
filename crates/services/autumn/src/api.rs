@@ -4,7 +4,7 @@ use std::{
 };
 
 use axum::{
-    extract::{DefaultBodyLimit, Path, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, HeaderMap, Method},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
@@ -29,7 +29,14 @@ use url_escape::encode_component;
 use utoipa::ToSchema;
 
 use crate::{
-    exif::strip_metadata, metadata::generate_metadata, mime_type::determine_mime_type, AppState,
+    encrypted::{
+        check_upload_options, mark_encrypted, UploadOptions, ENCRYPTED_CONTENT_TYPE,
+        ENCRYPTED_FILENAME,
+    },
+    exif::strip_metadata,
+    metadata::generate_metadata,
+    mime_type::determine_mime_type,
+    AppState,
 };
 
 /// Build the API router
@@ -162,6 +169,9 @@ pub struct UploadResponse {
 /// | icons | 2.5 MB | 40 MP or 10,000px | Image |
 /// | banners | 6 MB | 40 MP or 10,000px | Image |
 /// | emojis | 500 KB | 40 MP or 10,000px | Image |
+///
+/// With `?encrypted=true` (only `attachments`) the file is stored as an opaque
+/// end-to-end encrypted blob named `file.bin` without any processing.
 #[utoipa::path(
     post,
     path = "/{tag}",
@@ -170,7 +180,8 @@ pub struct UploadResponse {
         (status = 200, description = "Upload was successful", body = UploadResponse)
     ),
     params(
-        ("tag" = Tag, Path, description = "Tag to upload to (e.g. attachments, icons, ...)")
+        ("tag" = Tag, Path, description = "Tag to upload to (e.g. attachments, icons, ...)"),
+        UploadOptions
     ),
     request_body(content_type = "multipart/form-data", content = UploadPayload),
     security(
@@ -183,6 +194,7 @@ async fn upload_file(
     wide_context: WideContextRepository,
     user: User,
     Path(tag): Path<Tag>,
+    Query(options): Query<UploadOptions>,
     TypedMultipart(UploadPayload { mut file }): TypedMultipart<UploadPayload>,
 ) -> Result<Json<UploadResponse>> {
     wide_context.add("user_id", user.id.clone());
@@ -190,11 +202,18 @@ async fn upload_file(
     // Fetch configuration
     let config = config().await;
 
+    // dur.io fork: encrypted blobs are only attachments
+    check_upload_options(&tag, &options, config.features.e2ee.enabled)?;
+
     // Keep track of processing time
     let now = Instant::now();
 
-    // Extract the filename, or give it a generic name
-    let filename = file.metadata.file_name.unwrap_or("unnamed-file".to_owned());
+    // Extract the filename, or give it a generic name (encrypted blobs never reveal theirs)
+    let filename = if options.encrypted {
+        ENCRYPTED_FILENAME.to_owned()
+    } else {
+        file.metadata.file_name.unwrap_or("unnamed-file".to_owned())
+    };
 
     // Load file to memory
     let mut buf = Vec::<u8>::new();
@@ -234,20 +253,29 @@ async fn upload_file(
     };
 
     // Determine the mime type for the file
-    let mime_type = determine_mime_type(&mut file.contents, &buf, &filename);
+    let mime_type = if options.encrypted {
+        ENCRYPTED_CONTENT_TYPE
+    } else {
+        determine_mime_type(&mut file.contents, &buf, &filename)
+    };
 
     // Check blocklist for mime type
-    if config
-        .files
-        .blocked_mime_types
-        .iter()
-        .any(|m| m == mime_type)
+    if !options.encrypted
+        && config
+            .files
+            .blocked_mime_types
+            .iter()
+            .any(|m| m == mime_type)
     {
         return Err(create_error!(FileTypeNotAllowed));
     }
 
     // Determine metadata for the file
-    let metadata = generate_metadata(&file.contents, mime_type);
+    let metadata = if options.encrypted {
+        Metadata::File
+    } else {
+        generate_metadata(&file.contents, mime_type)
+    };
 
     // Block non-images for non-attachment uploads
     if !matches!(tag, Tag::attachments) && !matches!(metadata, Metadata::Image { .. }) {
@@ -261,11 +289,9 @@ async fn upload_file(
     {
         if !file_hash.iv.is_empty() {
             let tag: &'static str = tag.into();
-            db.insert_attachment(&file_hash.into_file(
-                id.clone(),
-                tag.to_owned(),
-                filename,
-                user.id,
+            db.insert_attachment(&mark_encrypted(
+                file_hash.into_file(id.clone(), tag.to_owned(), filename, user.id),
+                &options,
             ))
             .await?;
 
@@ -278,10 +304,15 @@ async fn upload_file(
     };
 
     // Strip metadata
-    let (buf, metadata) = strip_metadata(file.contents, buf, metadata, mime_type).await?;
+    let (buf, metadata) = if options.encrypted {
+        (buf, metadata)
+    } else {
+        strip_metadata(file.contents, buf, metadata, mime_type).await?
+    };
 
-    // Virus scan files if ClamAV is configured
-    if matches!(metadata, Metadata::File)
+    // Virus scan files if ClamAV is configured (ciphertext cannot be scanned)
+    if !options.encrypted
+        && matches!(metadata, Metadata::File)
         && (config.files.scan_mime_types.is_empty()
             || config.files.scan_mime_types.iter().any(|v| v == mime_type))
         && crate::clamav::is_malware(&buf).await?
@@ -333,8 +364,11 @@ async fn upload_file(
 
     // Finally, create the file and return its ID
     let tag: &'static str = tag.into();
-    db.insert_attachment(&file_hash.into_file(id.clone(), tag.to_owned(), filename, user.id))
-        .await?;
+    db.insert_attachment(&mark_encrypted(
+        file_hash.into_file(id.clone(), tag.to_owned(), filename, user.id),
+        &options,
+    ))
+    .await?;
 
     Ok(Json(UploadResponse { id }))
 }

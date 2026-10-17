@@ -21,6 +21,12 @@ auto_derived!(
         /// Whether this file was reported
         #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
         pub reported: Option<bool>,
+        /// Whether this file is an end-to-end encrypted blob (dur.io fork)
+        #[cfg_attr(
+            feature = "serde",
+            serde(skip_serializing_if = "crate::if_option_false")
+        )]
+        pub encrypted: Option<bool>,
 
         // TODO: migrate this mess to having:
         // - author_id

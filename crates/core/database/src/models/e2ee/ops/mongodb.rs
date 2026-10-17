@@ -4,14 +4,18 @@ use bson::{Bson, Document, to_bson, to_document};
 use futures::StreamExt;
 use mongodb::{
     error::{Error, ErrorKind, WriteFailure},
-    options::{FindOneAndDeleteOptions, FindOptions, InsertManyOptions},
+    options::{
+        FindOneAndDeleteOptions, FindOneAndUpdateOptions, FindOptions, InsertManyOptions,
+        ReturnDocument,
+    },
 };
 use revolt_models::v0::ChannelEncryption;
 use revolt_result::Result;
 
 use crate::{
     AbstractE2ee, E2eeBackupKey, E2eeBackupKeyId, E2eeBackupVersion, E2eeClaimedKey, E2eeDevice,
-    E2eeFallbackKey, E2eeOneTimeKey, E2eeSecret, E2eeSecretId, E2eeToDeviceMessage, MongoDb,
+    E2eeFallbackKey, E2eeOneTimeKey, E2eeSecret, E2eeSecretId, E2eeToDeviceMessage, File,
+    FileUsedFor, FileUsedForType, MongoDb,
 };
 
 const DEVICES: &str = "e2ee_devices";
@@ -22,6 +26,7 @@ const BACKUP_VERSIONS: &str = "e2ee_backup_versions";
 const BACKUP_KEYS: &str = "e2ee_backup_keys";
 const SECRETS: &str = "e2ee_secrets";
 const CHANNELS: &str = "channels";
+const ATTACHMENTS: &str = "attachments";
 
 /// Attempts to store a single backed up session against concurrent writers
 const BACKUP_KEY_ATTEMPTS: usize = 3;
@@ -761,5 +766,49 @@ impl AbstractE2ee for MongoDb {
             .await
             .map(|result| result.matched_count > 0)
             .map_err(|_| create_database_error!("update_one", CHANNELS))
+    }
+
+    async fn use_message_attachment(
+        &self,
+        id: &str,
+        encrypted: bool,
+        message_id: &str,
+        uploader_id: &str,
+    ) -> Result<File> {
+        let used_for = to_document(&FileUsedFor {
+            object_type: FileUsedForType::Message,
+            id: message_id.to_string(),
+        })
+        .map_err(|_| create_database_error!("to_document", ATTACHMENTS))?;
+
+        let encrypted = if encrypted {
+            Bson::Boolean(true)
+        } else {
+            Bson::Document(doc! { "$ne": true })
+        };
+
+        self.col::<File>(ATTACHMENTS)
+            .find_one_and_update(
+                doc! {
+                    "_id": id,
+                    "tag": "attachments",
+                    "used_for": { "$exists": false },
+                    "encrypted": encrypted
+                },
+                doc! {
+                    "$set": {
+                        "used_for": used_for,
+                        "uploader_id": uploader_id
+                    }
+                },
+            )
+            .with_options(
+                FindOneAndUpdateOptions::builder()
+                    .return_document(ReturnDocument::After)
+                    .build(),
+            )
+            .await
+            .map_err(|_| create_database_error!("find_one_and_update", ATTACHMENTS))?
+            .ok_or_else(|| create_error!(NotFound))
     }
 }

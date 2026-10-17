@@ -22,6 +22,7 @@ use tracing::info;
 
 mod api;
 pub mod clamav;
+mod encrypted;
 pub mod exif;
 pub mod metadata;
 pub mod mime_type;

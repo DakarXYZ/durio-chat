@@ -1,5 +1,5 @@
 //! Encrypted messages (BE-13 … BE-19)
-use revolt_database::{Channel, Message, Session, User};
+use revolt_database::{Channel, File, Message, Metadata, Session, User};
 use revolt_models::v0;
 use revolt_result::ErrorType;
 use rocket::http::{Method, Status};
@@ -435,4 +435,148 @@ async fn send_guard() {
         error.error_type,
         ErrorType::EncryptedChannelViolation
     ));
+}
+
+/// An unused attachment as autumn stores it (`?encrypted=true` sets the flag)
+#[allow(clippy::disallowed_methods)]
+pub async fn attachment(harness: &TestHarness, user: &User, encrypted: bool) -> String {
+    let id = ulid::Ulid::new().to_string();
+    harness
+        .db
+        .insert_attachment(&File {
+            id: id.clone(),
+            tag: "attachments".to_string(),
+            filename: "file.bin".to_string(),
+            hash: Some("hash".to_string()),
+            uploaded_at: None,
+            uploader_id: Some(user.id.clone()),
+            used_for: None,
+            deleted: None,
+            reported: None,
+            encrypted: encrypted.then_some(true),
+            metadata: Metadata::File,
+            content_type: "application/octet-stream".to_string(),
+            size: 1,
+            message_id: None,
+            user_id: None,
+            server_id: None,
+            object_id: None,
+        })
+        .await
+        .unwrap();
+    id
+}
+
+async fn is_used(harness: &TestHarness, id: &str) -> bool {
+    harness
+        .db
+        .fetch_attachment("attachments", id)
+        .await
+        .unwrap()
+        .used_for
+        .is_some()
+}
+
+/// Encrypted channels take only encrypted blobs, plain channels never take them
+#[rocket::async_test]
+async fn encrypted_attachments() {
+    let harness = TestHarness::new().await;
+    let dm = encrypted_dm(&harness).await;
+
+    let file = attachment(&harness, &dm.user, true).await;
+    let thumbnail = attachment(&harness, &dm.user, true).await;
+    let (status, body) = send(
+        &harness,
+        &dm.session,
+        dm.channel.id(),
+        json!({
+            "encrypted": envelope(&dm.session.id, "cipher"),
+            "attachments": [file, thumbnail]
+        }),
+    )
+    .await;
+    assert_eq!(status, Status::Ok, "{body}");
+    assert_eq!(body["attachments"][0]["_id"], file.as_str());
+    assert_eq!(body["attachments"][0]["encrypted"], true);
+    assert!(is_used(&harness, &file).await && is_used(&harness, &thumbnail).await);
+
+    let plain = attachment(&harness, &dm.user, false).await;
+    let (status, _) = send(
+        &harness,
+        &dm.session,
+        dm.channel.id(),
+        json!({
+            "encrypted": envelope(&dm.session.id, "cipher"),
+            "attachments": [plain]
+        }),
+    )
+    .await;
+    assert_eq!(status, Status::NotFound);
+    assert!(!is_used(&harness, &plain).await);
+
+    let (_, session, mut user) = harness.new_user().await;
+    let (_, _, mut other) = harness.new_user().await;
+    let plain_channel = friendly_dm(&harness, &mut user, &mut other).await;
+    let blob = attachment(&harness, &user, true).await;
+    let (status, _) = send(
+        &harness,
+        &session,
+        plain_channel.id(),
+        json!({ "content": "file", "attachments": [blob] }),
+    )
+    .await;
+    assert_eq!(status, Status::NotFound);
+    assert!(!is_used(&harness, &blob).await);
+
+    let plain = attachment(&harness, &user, false).await;
+    let (status, _) = send(
+        &harness,
+        &session,
+        plain_channel.id(),
+        json!({ "content": "file", "attachments": [plain] }),
+    )
+    .await;
+    assert_eq!(status, Status::Ok);
+}
+
+/// Encrypted messages carry up to twice the attachments (files and their thumbnails)
+#[rocket::async_test]
+async fn encrypted_attachment_limit() {
+    let harness = TestHarness::new().await;
+    let dm = encrypted_dm(&harness).await;
+    let limit = dm.user.limits().await.message_attachments * 2;
+
+    let mut files = vec![];
+    for _ in 0..=limit {
+        files.push(attachment(&harness, &dm.user, true).await);
+    }
+
+    let (status, body) = send(
+        &harness,
+        &dm.session,
+        dm.channel.id(),
+        json!({
+            "encrypted": envelope(&dm.session.id, "cipher"),
+            "attachments": files
+        }),
+    )
+    .await;
+    assert_eq!(status, Status::BadRequest);
+    assert!(matches!(
+        error_type(body),
+        ErrorType::TooManyAttachments { max } if max == limit
+    ));
+
+    let (status, body) = send(
+        &harness,
+        &dm.session,
+        dm.channel.id(),
+        json!({
+            "encrypted": envelope(&dm.session.id, "cipher"),
+            "attachments": files[..limit]
+        }),
+    )
+    .await;
+    assert_eq!(status, Status::Ok, "{body}");
+    assert_eq!(body["attachments"].as_array().unwrap().len(), limit);
 }

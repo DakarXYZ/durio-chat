@@ -8,7 +8,7 @@ use revolt_result::Result;
 use crate::{
     AbstractE2ee, Channel, E2eeBackupKey, E2eeBackupKeyId, E2eeBackupVersion, E2eeClaimedKey,
     E2eeDevice, E2eeFallbackKey, E2eeOneTimeKey, E2eeSecret, E2eeSecretId, E2eeToDeviceMessage,
-    ReferenceDb,
+    File, FileUsedFor, FileUsedForType, ReferenceDb,
 };
 
 /// E2EE collections of the reference database
@@ -512,6 +512,31 @@ impl AbstractE2ee for ReferenceDb {
                 Ok(true)
             }
             _ => Ok(false),
+        }
+    }
+
+    async fn use_message_attachment(
+        &self,
+        id: &str,
+        encrypted: bool,
+        message_id: &str,
+        uploader_id: &str,
+    ) -> Result<File> {
+        let mut files = self.files.lock().await;
+        match files.get_mut(id) {
+            Some(file)
+                if file.tag == "attachments"
+                    && file.used_for.is_none()
+                    && file.encrypted.unwrap_or_default() == encrypted =>
+            {
+                file.used_for = Some(FileUsedFor {
+                    object_type: FileUsedForType::Message,
+                    id: message_id.to_string(),
+                });
+                file.uploader_id = Some(uploader_id.to_string());
+                Ok(file.clone())
+            }
+            _ => Err(create_error!(NotFound)),
         }
     }
 }
