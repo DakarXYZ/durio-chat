@@ -7,6 +7,8 @@ use rocket::{Build, Rocket};
 mod bots;
 mod channels;
 mod customisation;
+#[allow(dead_code)] // used by the /e2ee routes (BE-06+)
+mod e2ee;
 mod invites;
 mod onboard;
 mod policy;
