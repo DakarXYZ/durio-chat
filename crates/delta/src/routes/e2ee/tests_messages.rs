@@ -961,3 +961,41 @@ async fn report_encrypted_message() {
         Some(serde_json::from_value::<v0::EncryptedEnvelope>(sent).unwrap())
     );
 }
+
+/// With `features.e2ee.enabled = false` nothing takes envelopes and encrypted channels
+/// become read-only
+#[rocket::async_test]
+async fn disabled_read_only() {
+    revolt_config::overwrite_config(|config| config.features.e2ee.enabled = false).await;
+
+    let harness = TestHarness::new().await;
+    let (_, session, mut user) = harness.new_user().await;
+    let (_, _, mut other) = harness.new_user().await;
+    let channel = friendly_dm(&harness, &mut user, &mut other).await;
+
+    let (status, body) = send(
+        &harness,
+        &session,
+        channel.id(),
+        json!({ "encrypted": envelope(&session.id, "cipher") }),
+    )
+    .await;
+    assert_violation(status, body);
+
+    // Encrypted while the feature was on
+    assert!(
+        harness
+            .db
+            .set_channel_encryption(channel.id(), &Channel::new_encryption(&user.id))
+            .await
+            .unwrap()
+    );
+
+    for body in [
+        json!({ "content": "plain" }),
+        json!({ "encrypted": envelope(&session.id, "cipher") }),
+    ] {
+        let (status, response) = send(&harness, &session, channel.id(), body).await;
+        assert_violation(status, response);
+    }
+}
