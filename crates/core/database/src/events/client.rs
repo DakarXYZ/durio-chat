@@ -386,11 +386,36 @@ pub enum EventV1 {
         started_at: Option<Timestamp>,
         ended: bool,
     },
+
+    /// New message in the to-device mailbox of a device (dur.io fork)
+    ///
+    /// Only a doorbell without content, clients fetch the mailbox through
+    /// `GET /e2ee/to_device`. Published only when E2EE is enabled.
+    E2eeToDevice {
+        /// Mailbox message id
+        id: String,
+        /// Recipient device (session) id
+        recipient_device: String,
+        /// Matrix-shaped id of the sending user
+        sender: String,
+        /// Sending device id
+        sender_device: String,
+        /// Event type of the message (`type` is taken by the event tag)
+        event_type: String,
+    },
+
+    /// Devices of a user changed (keys uploaded or device removed) (dur.io fork)
+    ///
+    /// Published only when E2EE is enabled.
+    E2eeDeviceListUpdate {
+        /// User id
+        user: String,
+    },
 }
 
 impl EventV1 {
     // Shim for legacy redis channel names
-    fn redis_suffix(&self, channel: String) -> String {
+    pub(crate) fn redis_suffix(&self, channel: String) -> String {
         use EventV1::*;
         match self {
             ChannelAck { .. }
@@ -402,7 +427,8 @@ impl EventV1 {
             | UserSlowmodes { .. }
             | UserMoveVoiceChannel { .. }
             | ChannelCreate(Channel::DirectMessage { .. } | Channel::Group { .. })
-            | ServerCreate { .. } => format!("{channel}!"),
+            | ServerCreate { .. }
+            | E2eeToDevice { .. } => format!("{channel}!"),
 
             _ => channel,
         }

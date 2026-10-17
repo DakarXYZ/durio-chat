@@ -7,7 +7,6 @@ use rocket::{Build, Rocket};
 mod bots;
 mod channels;
 mod customisation;
-#[allow(dead_code)] // used by the /e2ee routes (BE-06+)
 mod e2ee;
 mod invites;
 mod onboard;
@@ -45,6 +44,7 @@ pub fn mount(config: Settings, mut rocket: Rocket<Build>) -> Rocket<Build> {
             "/policy" => policy::routes(),
             "/push" => push::routes(),
             "/sync" => sync::routes(),
+            "/e2ee" => e2ee::routes(),
             "/webhooks" => webhooks::routes()
         };
     } else {
@@ -65,7 +65,8 @@ pub fn mount(config: Settings, mut rocket: Rocket<Build>) -> Rocket<Build> {
             "/onboard" => onboard::routes(),
             "/policy" => policy::routes(),
             "/push" => push::routes(),
-            "/sync" => sync::routes()
+            "/sync" => sync::routes(),
+            "/e2ee" => e2ee::routes()
         };
     }
 
@@ -154,6 +155,12 @@ fn custom_openapi_spec() -> OpenApi {
               "Session",
               "Onboarding",
               "MFA"
+            ]
+          },
+          {
+            "name": "Encryption",
+            "tags": [
+              "E2EE"
             ]
           },
           {
@@ -325,6 +332,14 @@ fn custom_openapi_spec() -> OpenApi {
             Tag {
                 name: "Webhooks".to_owned(),
                 description: Some("Send messages from 3rd party services".to_owned()),
+                ..Default::default()
+            },
+            Tag {
+                name: "E2EE".to_owned(),
+                description: Some(
+                    "End-to-end encryption: device keys, to-device messages and key backup"
+                        .to_owned(),
+                ),
                 ..Default::default()
             },
         ],
