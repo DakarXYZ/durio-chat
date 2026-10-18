@@ -443,12 +443,10 @@ impl EventV1 {
 
         redis_kiss::publish(redis_channel, &self).await.unwrap();
 
+        // dur.io fork: callers already stored what the event announces, a
+        // broker outage must not fail their request (B1)
         if let Err(e) = get_amqp().publish_event(channel, &self).await {
-            if cfg!(debug_assertions) {
-                panic!("{e:?}");
-            } else {
-                log::error!("{e:?}");
-            };
+            log::error!("Failed to publish event to RabbitMQ: {e:?}");
         };
     }
 
@@ -461,12 +459,10 @@ impl EventV1 {
             redis_kiss::publish(redis_channel, &self).await.unwrap();
         }
 
+        // dur.io fork: callers already stored what the event announces, a
+        // broker outage must not fail their request (B1)
         if let Err(e) = get_amqp().publish_event_broadcast(channels, &self).await {
-            if cfg!(debug_assertions) {
-                panic!("{e:?}");
-            } else {
-                log::error!("{e:?}");
-            };
+            log::error!("Failed to publish event to RabbitMQ: {e:?}");
         };
     }
 

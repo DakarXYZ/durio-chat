@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
-    sync::{Arc, OnceLock},
+    sync::{Arc, OnceLock, RwLock},
+    time::{Duration, Instant},
 };
 
 use crate::User;
@@ -17,6 +18,7 @@ use revolt_presence::filter_online;
 use revolt_result::Result;
 
 use serde_json::to_string;
+use tokio::{sync::Mutex, time::timeout};
 
 static AMQP_INSTANCE: OnceLock<AMQP> = OnceLock::new();
 
@@ -24,34 +26,89 @@ pub fn get_amqp() -> &'static AMQP {
     AMQP_INSTANCE.get().expect("No AMQP instance set.")
 }
 
+/// Channels of one broker connection, replaced as a whole on reconnect
+struct Channels {
+    /// Bumped on every reconnect, so racing publishers reconnect only once
+    generation: u64,
+    friend_request_accepted: Channel,
+    friend_request_received: Channel,
+    generic_message: Channel,
+    message_sent: Channel,
+    mass_mention_message_sent: Channel,
+    ack_notification_message: Channel,
+    dm_call_updated: Channel,
+    process_ack: Channel,
+    publish_event: Channel,
+    connection: Arc<Connection>,
+}
+
+impl Channels {
+    async fn open(connection: Arc<Connection>, generation: u64) -> Result<Self, AMQPError> {
+        Ok(Self {
+            generation,
+            friend_request_accepted: connection.create_channel().await?,
+            friend_request_received: connection.create_channel().await?,
+            generic_message: connection.create_channel().await?,
+            message_sent: connection.create_channel().await?,
+            mass_mention_message_sent: connection.create_channel().await?,
+            ack_notification_message: connection.create_channel().await?,
+            dm_call_updated: connection.create_channel().await?,
+            process_ack: connection.create_channel().await?,
+            publish_event: connection.create_channel().await?,
+            connection,
+        })
+    }
+}
+
+/// Pause between reconnect attempts, so requests during an outage fail fast
+/// instead of each one dialling the broker
+#[derive(Default, Debug)]
+struct Backoff {
+    failures: u32,
+    next_attempt: Option<Instant>,
+}
+
+impl Backoff {
+    const MIN: Duration = Duration::from_millis(500);
+    const MAX: Duration = Duration::from_secs(30);
+
+    fn ready(&self, now: Instant) -> bool {
+        self.next_attempt.is_none_or(|next| now >= next)
+    }
+
+    fn failed(&mut self, now: Instant) {
+        let delay = Self::MIN
+            .saturating_mul(1 << self.failures.min(16))
+            .min(Self::MAX);
+        self.failures = self.failures.saturating_add(1);
+        self.next_attempt = Some(now + delay);
+    }
+
+    fn succeeded(&mut self) {
+        *self = Self::default();
+    }
+}
+
+/// Upper bound for one reconnect attempt made on a request path
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+
+// dur.io fork: the connection and its channels are replaced after a broker
+// restart, upstream kept the first ones forever (B1)
 #[derive(Clone)]
 pub struct AMQP {
-    friend_request_accepted: Arc<Channel>,
-    friend_request_received: Arc<Channel>,
-    generic_message: Arc<Channel>,
-    message_sent: Arc<Channel>,
-    mass_mention_message_sent: Arc<Channel>,
-    ack_notification_message: Arc<Channel>,
-    dm_call_updated: Arc<Channel>,
-    process_ack: Arc<Channel>,
-    publish_event: Arc<Channel>,
-    #[allow(unused)]
-    connection: Arc<Connection>,
+    channels: Arc<RwLock<Arc<Channels>>>,
+    reconnect: Arc<Mutex<Backoff>>,
 }
 
 impl AMQP {
     pub async fn new(connection: Arc<Connection>) -> Self {
+        let channels = Channels::open(connection, 0)
+            .await
+            .expect("Failed to create channel");
+
         let this = Self {
-            friend_request_accepted: Self::create_channel(&connection).await,
-            friend_request_received: Self::create_channel(&connection).await,
-            generic_message: Self::create_channel(&connection).await,
-            message_sent: Self::create_channel(&connection).await,
-            mass_mention_message_sent: Self::create_channel(&connection).await,
-            ack_notification_message: Self::create_channel(&connection).await,
-            dm_call_updated: Self::create_channel(&connection).await,
-            process_ack: Self::create_channel(&connection).await,
-            publish_event: Self::create_channel(&connection).await,
-            connection,
+            channels: Arc::new(RwLock::new(Arc::new(channels))),
+            reconnect: Arc::new(Mutex::new(Backoff::default())),
         };
 
         let _ = AMQP_INSTANCE.set(this.clone());
@@ -60,37 +117,136 @@ impl AMQP {
     }
 
     pub async fn new_auto() -> Self {
-        let config = revolt_config::config().await;
-
         let connection = Arc::new(
-            Connection::connect(
-                &format!(
-                    "amqp://{}:{}@{}:{}",
-                    &config.rabbit.username,
-                    &config.rabbit.password,
-                    &config.rabbit.host,
-                    &config.rabbit.port,
-                ),
-                ConnectionProperties::default(),
-            )
-            .await
-            .expect("Failed to connect to RabbitMQ"),
+            Self::connect()
+                .await
+                .expect("Failed to connect to RabbitMQ"),
         );
 
         Self::new(connection).await
     }
 
-    async fn create_channel(connection: &Connection) -> Arc<Channel> {
-        Arc::new(
-            connection
-                .create_channel()
-                .await
-                .expect("Failed to create channel"),
+    async fn connect() -> Result<Connection, AMQPError> {
+        let config = revolt_config::config().await;
+
+        Connection::connect(
+            &format!(
+                "amqp://{}:{}@{}:{}",
+                &config.rabbit.username,
+                &config.rabbit.password,
+                &config.rabbit.host,
+                &config.rabbit.port,
+            ),
+            ConnectionProperties::default(),
         )
+        .await
     }
 
-    pub fn connection(&self) -> &Arc<Connection> {
-        &self.connection
+    pub fn connection(&self) -> Arc<Connection> {
+        self.current().connection.clone()
+    }
+
+    fn current(&self) -> Arc<Channels> {
+        self.channels
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Replace the connection after a failed publish on generation `failed`;
+    /// `None` while the broker is unreachable or the backoff has not passed
+    async fn reconnect(&self, failed: u64) -> Option<Arc<Channels>> {
+        let mut backoff = self.reconnect.lock().await;
+
+        // Someone else already reconnected
+        let current = self.current();
+        if current.generation != failed {
+            return Some(current);
+        }
+
+        if !backoff.ready(Instant::now()) {
+            return None;
+        }
+
+        let opened = timeout(CONNECT_TIMEOUT, async {
+            let connection = Arc::new(Self::connect().await?);
+            Channels::open(connection, failed + 1).await
+        })
+        .await;
+
+        match opened {
+            Ok(Ok(channels)) => {
+                backoff.succeeded();
+                let channels = Arc::new(channels);
+                *self
+                    .channels
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = channels.clone();
+                info!(
+                    "Reconnected to RabbitMQ (generation {})",
+                    channels.generation
+                );
+
+                // The old connection may still be half alive (a channel error)
+                let old = current.connection.clone();
+                tokio::spawn(async move {
+                    let _ = old.close(200, "reconnecting".into()).await;
+                });
+
+                Some(channels)
+            }
+            Ok(Err(error)) => {
+                backoff.failed(Instant::now());
+                warn!("Failed to reconnect to RabbitMQ: {error:?}");
+                None
+            }
+            Err(_) => {
+                backoff.failed(Instant::now());
+                warn!("Timed out reconnecting to RabbitMQ");
+                None
+            }
+        }
+    }
+
+    /// Publish on one of the channels, reconnecting once if it is dead
+    async fn publish(
+        &self,
+        channel: fn(&Channels) -> &Channel,
+        exchange: &str,
+        routing_key: &str,
+        payload: &[u8],
+        properties: BasicProperties,
+    ) -> Result<(), AMQPError> {
+        let current = self.current();
+        let error = match channel(&current)
+            .basic_publish(
+                exchange.into(),
+                routing_key.into(),
+                BasicPublishOptions::default(),
+                payload,
+                properties.clone(),
+            )
+            .await
+        {
+            Ok(_) => return Ok(()),
+            Err(error) => error,
+        };
+
+        warn!("Publish to {routing_key} failed, reconnecting to RabbitMQ: {error:?}");
+        let Some(fresh) = self.reconnect(current.generation).await else {
+            return Err(error);
+        };
+
+        channel(&fresh)
+            .basic_publish(
+                exchange.into(),
+                routing_key.into(),
+                BasicPublishOptions::default(),
+                payload,
+                properties,
+            )
+            .await
+            .map(|_| ())
     }
 
     pub async fn friend_request_accepted(
@@ -111,17 +267,16 @@ impl AMQP {
             payload
         );
 
-        self.friend_request_accepted
-            .basic_publish(
-                config.pushd.exchange.clone().into(),
-                config.pushd.get_fr_accepted_routing_key().into(),
-                BasicPublishOptions::default(),
-                payload.as_bytes(),
-                AMQPProperties::default()
-                    .with_content_type("application/json".into())
-                    .with_delivery_mode(2),
-            )
-            .await?;
+        self.publish(
+            |channels| &channels.friend_request_accepted,
+            &config.pushd.exchange,
+            &config.pushd.get_fr_accepted_routing_key(),
+            payload.as_bytes(),
+            AMQPProperties::default()
+                .with_content_type("application/json".into())
+                .with_delivery_mode(2),
+        )
+        .await?;
 
         Ok(())
     }
@@ -144,17 +299,16 @@ impl AMQP {
             payload
         );
 
-        self.friend_request_received
-            .basic_publish(
-                config.pushd.exchange.clone().into(),
-                config.pushd.get_fr_received_routing_key().into(),
-                BasicPublishOptions::default(),
-                payload.as_bytes(),
-                AMQPProperties::default()
-                    .with_content_type("application/json".into())
-                    .with_delivery_mode(2),
-            )
-            .await?;
+        self.publish(
+            |channels| &channels.friend_request_received,
+            &config.pushd.exchange,
+            &config.pushd.get_fr_received_routing_key(),
+            payload.as_bytes(),
+            AMQPProperties::default()
+                .with_content_type("application/json".into())
+                .with_delivery_mode(2),
+        )
+        .await?;
 
         Ok(())
     }
@@ -181,17 +335,16 @@ impl AMQP {
             payload
         );
 
-        self.generic_message
-            .basic_publish(
-                config.pushd.exchange.clone().into(),
-                config.pushd.get_generic_routing_key().into(),
-                BasicPublishOptions::default(),
-                payload.as_bytes(),
-                AMQPProperties::default()
-                    .with_content_type("application/json".into())
-                    .with_delivery_mode(2),
-            )
-            .await?;
+        self.publish(
+            |channels| &channels.generic_message,
+            &config.pushd.exchange,
+            &config.pushd.get_generic_routing_key(),
+            payload.as_bytes(),
+            AMQPProperties::default()
+                .with_content_type("application/json".into())
+                .with_delivery_mode(2),
+        )
+        .await?;
 
         Ok(())
     }
@@ -224,17 +377,16 @@ impl AMQP {
             payload
         );
 
-        self.message_sent
-            .basic_publish(
-                config.pushd.exchange.clone().into(),
-                config.pushd.get_message_routing_key().into(),
-                BasicPublishOptions::default(),
-                payload.as_bytes(),
-                AMQPProperties::default()
-                    .with_content_type("application/json".into())
-                    .with_delivery_mode(2),
-            )
-            .await?;
+        self.publish(
+            |channels| &channels.message_sent,
+            &config.pushd.exchange,
+            &config.pushd.get_message_routing_key(),
+            payload.as_bytes(),
+            AMQPProperties::default()
+                .with_content_type("application/json".into())
+                .with_delivery_mode(2),
+        )
+        .await?;
 
         Ok(())
     }
@@ -259,17 +411,16 @@ impl AMQP {
             routing_key, payload
         );
 
-        self.mass_mention_message_sent
-            .basic_publish(
-                config.pushd.exchange.clone().into(),
-                routing_key.into(),
-                BasicPublishOptions::default(),
-                payload.as_bytes(),
-                AMQPProperties::default()
-                    .with_content_type("application/json".into())
-                    .with_delivery_mode(2),
-            )
-            .await?;
+        self.publish(
+            |channels| &channels.mass_mention_message_sent,
+            &config.pushd.exchange,
+            &routing_key,
+            payload.as_bytes(),
+            AMQPProperties::default()
+                .with_content_type("application/json".into())
+                .with_delivery_mode(2),
+        )
+        .await?;
 
         Ok(())
     }
@@ -302,17 +453,16 @@ impl AMQP {
             AMQPValue::LongString(format!("{}-{}", &user_id, &channel_id).into()),
         );
 
-        self.ack_notification_message
-            .basic_publish(
-                config.pushd.exchange.clone().into(),
-                config.pushd.ack_queue.into(),
-                BasicPublishOptions::default(),
-                payload.as_bytes(),
-                AMQPProperties::default()
-                    .with_content_type("application/json".into())
-                    .with_delivery_mode(2),
-            )
-            .await?;
+        self.publish(
+            |channels| &channels.ack_notification_message,
+            &config.pushd.exchange,
+            &config.pushd.ack_queue,
+            payload.as_bytes(),
+            AMQPProperties::default()
+                .with_content_type("application/json".into())
+                .with_delivery_mode(2),
+        )
+        .await?;
 
         Ok(())
     }
@@ -348,17 +498,16 @@ impl AMQP {
             payload
         );
 
-        self.dm_call_updated
-            .basic_publish(
-                config.pushd.exchange.clone().into(),
-                config.pushd.get_dm_call_routing_key().into(),
-                BasicPublishOptions::default(),
-                payload.as_bytes(),
-                AMQPProperties::default()
-                    .with_content_type("application/json".into())
-                    .with_delivery_mode(2),
-            )
-            .await?;
+        self.publish(
+            |channels| &channels.dm_call_updated,
+            &config.pushd.exchange,
+            &config.pushd.get_dm_call_routing_key(),
+            payload.as_bytes(),
+            AMQPProperties::default()
+                .with_content_type("application/json".into())
+                .with_delivery_mode(2),
+        )
+        .await?;
 
         Ok(())
     }
@@ -384,17 +533,16 @@ impl AMQP {
             config.rabbit.default_exchange, config.rabbit.queues.acks, payload
         );
 
-        self.process_ack
-            .basic_publish(
-                config.rabbit.default_exchange.clone().into(),
-                config.rabbit.queues.acks.into(),
-                BasicPublishOptions::default(),
-                payload.as_bytes(),
-                AMQPProperties::default()
-                    .with_content_type("application/json".into())
-                    .with_delivery_mode(2),
-            )
-            .await?;
+        self.publish(
+            |channels| &channels.process_ack,
+            &config.rabbit.default_exchange,
+            &config.rabbit.queues.acks,
+            payload.as_bytes(),
+            AMQPProperties::default()
+                .with_content_type("application/json".into())
+                .with_delivery_mode(2),
+        )
+        .await?;
 
         Ok(())
     }
@@ -405,15 +553,14 @@ impl AMQP {
 
         let config = config().await;
 
-        self.publish_event
-            .basic_publish(
-                config.rabbit.default_exchange.clone().into(),
-                config.rabbit.queues.events.into(),
-                BasicPublishOptions::default(),
-                &erltf_serde::to_bytes(event).unwrap(),
-                BasicProperties::default().with_headers(headers),
-            )
-            .await?;
+        self.publish(
+            |channels| &channels.publish_event,
+            &config.rabbit.default_exchange,
+            &config.rabbit.queues.events,
+            &erltf_serde::to_bytes(event).unwrap(),
+            BasicProperties::default().with_headers(headers),
+        )
+        .await?;
 
         Ok(())
     }
@@ -437,16 +584,90 @@ impl AMQP {
 
         let config = config().await;
 
-        self.publish_event
-            .basic_publish(
-                config.rabbit.default_exchange.clone().into(),
-                config.rabbit.queues.events.into(),
-                BasicPublishOptions::default(),
-                &erltf_serde::to_bytes(event).unwrap(),
-                BasicProperties::default().with_headers(headers),
-            )
-            .await?;
+        self.publish(
+            |channels| &channels.publish_event,
+            &config.rabbit.default_exchange,
+            &config.rabbit.queues.events,
+            &erltf_serde::to_bytes(event).unwrap(),
+            BasicProperties::default().with_headers(headers),
+        )
+        .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use lapin::{ExchangeKind, options::ExchangeDeclareOptions, types::FieldTable};
+
+    use super::{AMQP, Backoff};
+
+    #[test]
+    fn backoff_grows_and_resets() {
+        let now = Instant::now();
+        let mut backoff = Backoff::default();
+        assert!(backoff.ready(now));
+
+        backoff.failed(now);
+        assert!(!backoff.ready(now));
+        assert!(backoff.ready(now + Backoff::MIN));
+
+        for _ in 0..40 {
+            backoff.failed(now);
+        }
+        assert!(!backoff.ready(now + Backoff::MAX - Duration::from_millis(1)));
+        assert!(backoff.ready(now + Backoff::MAX));
+
+        backoff.succeeded();
+        assert!(backoff.ready(now));
+    }
+
+    /// A dead connection is replaced on the next publish (B1)
+    #[tokio::test]
+    async fn publish_reconnects_after_connection_loss() {
+        let config = revolt_config::config().await;
+        let amqp = AMQP::new_auto().await;
+        amqp.connection()
+            .create_channel()
+            .await
+            .unwrap()
+            .exchange_declare(
+                config.rabbit.default_exchange.clone().into(),
+                ExchangeKind::Topic,
+                ExchangeDeclareOptions {
+                    durable: true,
+                    ..Default::default()
+                },
+                FieldTable::default(),
+            )
+            .await
+            .unwrap();
+
+        amqp.process_ack("user", Some("channel"), None)
+            .await
+            .unwrap();
+        assert_eq!(amqp.current().generation, 0);
+
+        // What a broker restart leaves behind: every channel is closed
+        amqp.connection()
+            .close(320, "broker restart".into())
+            .await
+            .unwrap();
+
+        amqp.process_ack("user", Some("channel"), None)
+            .await
+            .expect("publish after reconnect");
+        assert_eq!(amqp.current().generation, 1);
+        assert!(amqp.connection().status().connected());
+
+        // Clones share the new connection
+        amqp.clone()
+            .process_ack("user", Some("channel"), None)
+            .await
+            .unwrap();
+        assert_eq!(amqp.current().generation, 1);
     }
 }
