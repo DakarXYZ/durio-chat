@@ -1,4 +1,5 @@
 use bson::Document;
+use mongodb::error::{Error, ErrorKind, WriteFailure};
 use mongodb::options::FindOneAndUpdateOptions;
 use mongodb::options::ReturnDocument;
 use mongodb::options::UpdateOptions;
@@ -12,6 +13,22 @@ use super::AbstractChannelUnreads;
 
 static COL: &str = "channel_unreads";
 
+/// Attempts of an upsert racing another upsert of the same new unread
+///
+/// The filter is on `_id.channel` / `_id.user`, not on `_id`, so MongoDB does
+/// not retry such an upsert itself: the loser fails with a duplicate key and
+/// finds the document on the next attempt (dur.io fork, B4).
+const UPSERT_ATTEMPTS: usize = 3;
+
+/// Whether the error is a duplicate key violation (E11000)
+fn is_duplicate_key(error: &Error) -> bool {
+    match error.kind.as_ref() {
+        ErrorKind::Write(WriteFailure::WriteError(error)) => error.code == 11000,
+        ErrorKind::Command(error) => error.code == 11000,
+        _ => false,
+    }
+}
+
 #[async_trait]
 impl AbstractChannelUnreads for MongoDb {
     /// Acknowledge a message, and returns updated channel unread.
@@ -21,31 +38,39 @@ impl AbstractChannelUnreads for MongoDb {
         user_id: &str,
         message_id: &str,
     ) -> Result<Option<ChannelUnread>> {
-        self.col::<ChannelUnread>(COL)
-            .find_one_and_update(
-                doc! {
-                    "_id.channel": channel_id,
-                    "_id.user": user_id,
-                },
-                doc! {
-                    "$pull": {
-                        "mentions": {
-                            "$lte": message_id
+        let mut attempt = 1;
+        loop {
+            let result = self
+                .col::<ChannelUnread>(COL)
+                .find_one_and_update(
+                    doc! {
+                        "_id.channel": channel_id,
+                        "_id.user": user_id,
+                    },
+                    doc! {
+                        "$pull": {
+                            "mentions": {
+                                "$lte": message_id
+                            }
+                        },
+                        "$set": {
+                            "last_id": message_id
                         }
                     },
-                    "$set": {
-                        "last_id": message_id
-                    }
-                },
-            )
-            .with_options(
-                FindOneAndUpdateOptions::builder()
-                    .upsert(true)
-                    .return_document(ReturnDocument::After)
-                    .build(),
-            )
-            .await
-            .map_err(|_| create_database_error!("update_one", COL))
+                )
+                .with_options(
+                    FindOneAndUpdateOptions::builder()
+                        .upsert(true)
+                        .return_document(ReturnDocument::After)
+                        .build(),
+                )
+                .await;
+
+            match result {
+                Err(error) if attempt < UPSERT_ATTEMPTS && is_duplicate_key(&error) => attempt += 1,
+                result => return result.map_err(|_| create_database_error!("update_one", COL)),
+            }
+        }
     }
 
     /// Acknowledge many channels.
@@ -89,24 +114,35 @@ impl AbstractChannelUnreads for MongoDb {
         user_id: &str,
         message_ids: &[String],
     ) -> Result<()> {
-        self.col::<Document>(COL)
-            .update_one(
-                doc! {
-                    "_id.channel": channel_id,
-                    "_id.user": user_id,
-                },
-                doc! {
-                    "$push": {
-                        "mentions": {
-                            "$each": message_ids
+        let mut attempt = 1;
+        loop {
+            let result = self
+                .col::<Document>(COL)
+                .update_one(
+                    doc! {
+                        "_id.channel": channel_id,
+                        "_id.user": user_id,
+                    },
+                    doc! {
+                        "$push": {
+                            "mentions": {
+                                "$each": message_ids
+                            }
                         }
-                    }
-                },
-            )
-            .with_options(UpdateOptions::builder().upsert(true).build())
-            .await
-            .map(|_| ())
-            .map_err(|_| create_database_error!("update_one", COL))
+                    },
+                )
+                .with_options(UpdateOptions::builder().upsert(true).build())
+                .await;
+
+            match result {
+                Err(error) if attempt < UPSERT_ATTEMPTS && is_duplicate_key(&error) => attempt += 1,
+                result => {
+                    return result
+                        .map(|_| ())
+                        .map_err(|_| create_database_error!("update_one", COL));
+                }
+            }
+        }
     }
 
     /// Add a mention to multiple users.

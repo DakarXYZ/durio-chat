@@ -145,9 +145,14 @@ pub async fn handle_ack_event(
                     })
                     .collect();
 
+                // dur.io fork: one failed user must not cost the others
+                // their mentions and the whole batch its pushes (B4)
                 if !message_ids.is_empty() {
-                    db.add_mention_to_unread(channel, user, &message_ids)
-                        .await?;
+                    if let Err(err) = db.add_mention_to_unread(channel, user, &message_ids).await {
+                        revolt_config::capture_error(&err);
+                        error!("{err:?} adding mentions for user {user} in {channel}");
+                        continue;
+                    }
                 }
                 info!("Added {} mentions for user {}", message_ids.len(), &user);
             }
@@ -191,10 +196,8 @@ pub async fn handle_ack_event(
                     &mass_mentions[0].message.channel
                 );
 
-                let channel = db
-                    .fetch_channel(&mass_mentions[0].message.channel)
-                    .await
-                    .expect("Failed to fetch channel from db");
+                // dur.io fork: a panic here ended the ack worker for good
+                let channel = db.fetch_channel(&mass_mentions[0].message.channel).await?;
 
                 if let TextChannel { server, .. } = channel {
                     if let Err(err) = amqp.mass_mention_message_sent(server, mass_mentions).await {
