@@ -414,7 +414,14 @@ async fn listener(
         }
     }
 
-    report_internal_error!(subscriber.quit().await).ok();
+    // dur.io fork: QUIT waits for a connection that may never come back after
+    // a Redis restart; the socket then stayed open without a listener (B3)
+    match tokio::time::timeout(std::time::Duration::from_secs(2), subscriber.quit()).await {
+        Ok(result) => {
+            report_internal_error!(result).ok();
+        }
+        Err(_) => warn!("{addr:?} timed out quitting the Redis subscriber"),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
