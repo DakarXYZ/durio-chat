@@ -1037,7 +1037,7 @@ async fn send_retry_returns_stored_message() {
     assert_eq!(retry["_id"], first["_id"]);
     assert_eq!(retry["nonce"], json!(nonce));
 
-    // Same Idempotency-Key header and body nonce, as the clients send them
+    // An Idempotency-Key header and another body nonce
     let key = ulid::Ulid::new().to_string();
     let body = json!({
         "encrypted": envelope(&dm.session.id, "two"),
@@ -1048,6 +1048,16 @@ async fn send_retry_returns_stored_message() {
     let (status, retry) = post(&dm.session, body, Some(&key)).await;
     assert_eq!(status, Status::Ok, "{retry}");
     assert_eq!(retry["_id"], second["_id"]);
+
+    // The header equal to the body nonce, as the clients send them: the
+    // first send is not taken for a repeat of itself (WEB-08)
+    let key = ulid::Ulid::new().to_string();
+    let body = json!({ "encrypted": envelope(&dm.session.id, "same"), "nonce": key });
+    let (status, same) = post(&dm.session, body.clone(), Some(&key)).await;
+    assert_eq!(status, Status::Ok, "{same}");
+    let (status, retry) = post(&dm.session, body, Some(&key)).await;
+    assert_eq!(status, Status::Ok, "{retry}");
+    assert_eq!(retry["_id"], same["_id"]);
 
     // Only the header: it is the nonce
     let key = ulid::Ulid::new().to_string();
@@ -1090,7 +1100,7 @@ async fn send_retry_returns_stored_message() {
         .unwrap();
     let mut ids: Vec<_> = stored.into_iter().map(|message| message.id).collect();
     ids.sort();
-    let mut expected: Vec<_> = [first, second, third]
+    let mut expected: Vec<_> = [first, second, same, third]
         .iter()
         .map(|message| message["_id"].as_str().unwrap().to_string())
         .collect();

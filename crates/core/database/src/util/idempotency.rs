@@ -44,6 +44,12 @@ impl IdempotencyKey {
     // Issue #109
     pub async fn consume_nonce(&mut self, v: Option<String>) -> Result<()> {
         if let Some(v) = v {
+            // dur.io fork: the clients send the nonce as the Idempotency-Key
+            // header too; this request reserved it already (WEB-08)
+            if !self.replayed && v == self.key {
+                return Ok(());
+            }
+
             let mut cache = TOKEN_CACHE.lock().await;
             if cache.get(&v).is_some() {
                 return Err(create_error!(DuplicateNonce));
