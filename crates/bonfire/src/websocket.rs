@@ -2,7 +2,6 @@ use std::{collections::HashSet, net::SocketAddr, num::NonZeroUsize, sync::Arc};
 
 use async_tungstenite::WebSocketStream;
 use fred::{
-    error::RedisErrorKind,
     interfaces::{ClientLike, EventInterface, PubsubInterface},
     types::{ReconnectPolicy, RedisConfig},
 };
@@ -262,16 +261,20 @@ async fn listener(
     let clean_up_s = Arc::new(Mutex::new(clean_up_s));
     subscriber.on_error(move |err| {
         warn!("Redis subscriber error: {:?}", err);
-        if let RedisErrorKind::Canceled = err.kind() {
-            let clean_up_s = clean_up_s.clone();
-            spawn(async move {
-                clean_up_s.lock().await.send(()).await.ok();
-            });
-        }
-        // Transient errors (IO, timeout) are handled by the reconnect policy.
+        // dur.io fork: any connection error closes the socket, see below (B3)
+        let clean_up_s = clean_up_s.clone();
+        spawn(async move {
+            clean_up_s.lock().await.send(()).await.ok();
+        });
 
         Ok(())
     });
+
+    // dur.io fork: after a Redis restart some sockets stayed open but got no
+    // more events, although Fred reconnected and resubscribed. Events
+    // published while Redis was down are lost anyway, so the socket is closed
+    // instead: the client reconnects, gets Ready and catches up (B3).
+    let mut reconnect_rx = subscriber.reconnect_rx();
 
     let mut message_rx = subscriber.message_rx();
     'out: loop {
@@ -318,10 +321,15 @@ async fn listener(
         let t2 = topic_signal_r.recv().fuse();
         let t3 = kill_signal_r.recv().fuse();
         let t4 = clean_up_r.recv().fuse();
+        let t5 = reconnect_rx.recv().fuse();
 
-        pin_mut!(t1, t2, t3, t4);
+        pin_mut!(t1, t2, t3, t4, t5);
 
         select! {
+            _ = t5 => {
+                info!("{addr:?} Redis subscriber reconnected, closing the socket");
+                break 'out;
+            },
             _ = t4 => {
                 break 'out;
             },
