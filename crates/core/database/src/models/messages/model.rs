@@ -8,7 +8,7 @@ use revolt_models::v0::{
 use revolt_permissions::{calculate_channel_permissions, ChannelPermission, PermissionValue};
 use revolt_result::{ErrorType, Result};
 use std::str::FromStr;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use std::{collections::HashSet, hash::RandomState};
 use ulid::Ulid;
 use validator::Validate;
@@ -295,10 +295,22 @@ impl Message {
             limits.message_length,
         )?;
 
-        idempotency
-            .consume_nonce(data.nonce)
-            .await
-            .map_err(|_| create_error!(InvalidOperation))?;
+        // dur.io fork: a retried send answers with the message the first
+        // attempt stored, so a client that lost the response learns its id (B2)
+        let nonce_check = if idempotency.is_replayed() {
+            Err(create_error!(DuplicateNonce))
+        } else {
+            idempotency
+                .consume_nonce(data.nonce.clone())
+                .await
+                .map_err(|_| create_error!(InvalidOperation))
+        };
+        if let Err(error) = nonce_check {
+            let nonce = data.nonce.as_deref().unwrap_or(idempotency.key());
+            return Message::fetch_replayed(db, channel.id(), author.id(), nonce)
+                .await?
+                .ok_or(error);
+        }
 
         // Check the message is not empty
         if (data.content.as_ref().is_none_or(|v| v.is_empty()))
@@ -644,6 +656,22 @@ impl Message {
             .await?;
 
         Ok(message)
+    }
+
+    /// The message a retried send already stored (dur.io fork, B2)
+    ///
+    /// Nonces are remembered in memory, so retries are expected within
+    /// minutes; the window only bounds the lookup.
+    async fn fetch_replayed(
+        db: &Database,
+        channel: &str,
+        author: &str,
+        nonce: &str,
+    ) -> Result<Option<Message>> {
+        const WINDOW: Duration = Duration::from_secs(24 * 60 * 60);
+        let after = Ulid::from_datetime(SystemTime::now() - WINDOW).to_string();
+        db.fetch_message_by_nonce(channel, author, nonce, &after)
+            .await
     }
 
     /// Send a message without any notifications

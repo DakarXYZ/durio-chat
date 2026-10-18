@@ -22,6 +22,15 @@ pub trait AbstractMessages: Sync + Send {
     /// Fetch multiple messages by given IDs
     async fn fetch_messages_by_id(&self, ids: &[String]) -> Result<Vec<Message>>;
 
+    /// Fetch the message an author sent to a channel with a nonce, newer than `after` (dur.io fork)
+    async fn fetch_message_by_nonce(
+        &self,
+        channel: &str,
+        author: &str,
+        nonce: &str,
+        after: &str,
+    ) -> Result<Option<Message>>;
+
     /// Update a given message with new information
     async fn update_message(&self, id: &str, message: &PartialMessage, remove: Vec<FieldsMessage>) -> Result<()>;
 

@@ -193,6 +193,26 @@ impl AbstractMessages for ReferenceDb {
         try_join_all(ids.iter().map(|id| self.fetch_message(id))).await
     }
 
+    /// Fetch the message an author sent to a channel with a nonce, newer than `after` (dur.io fork)
+    async fn fetch_message_by_nonce(
+        &self,
+        channel: &str,
+        author: &str,
+        nonce: &str,
+        after: &str,
+    ) -> Result<Option<Message>> {
+        let messages = self.messages.lock().await;
+        Ok(messages
+            .values()
+            .find(|message| {
+                message.channel == channel
+                    && message.author == author
+                    && message.id.as_str() > after
+                    && message.nonce.as_deref() == Some(nonce)
+            })
+            .cloned())
+    }
+
     /// Update a given message with new information
     async fn update_message(
         &self,

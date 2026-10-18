@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub struct IdempotencyKey {
     key: String,
+    /// dur.io fork: this Idempotency-Key header was already used (B2)
+    #[serde(skip)]
+    replayed: bool,
 }
 
 static TOKEN_CACHE: Lazy<Mutex<lru::LruCache<String, ()>>> =
@@ -19,7 +22,22 @@ static TOKEN_CACHE: Lazy<Mutex<lru::LruCache<String, ()>>> =
 
 impl IdempotencyKey {
     pub fn unchecked_from_string(key: String) -> Self {
-        Self { key }
+        Self {
+            key,
+            replayed: false,
+        }
+    }
+
+    /// The Idempotency-Key header of this request was seen before (dur.io fork)
+    ///
+    /// The route either answers with what the first request created or with
+    /// the upstream `409 DuplicateNonce`.
+    pub fn is_replayed(&self) -> bool {
+        self.replayed
+    }
+
+    pub fn key(&self) -> &str {
+        &self.key
     }
 
     // Backwards compatibility.
@@ -110,10 +128,15 @@ impl<'r> FromRequest<'r> for IdempotencyKey {
                 ));
             }
 
-            let idempotency = IdempotencyKey { key };
+            let mut idempotency = IdempotencyKey {
+                key,
+                replayed: false,
+            };
             let mut cache = TOKEN_CACHE.lock().await;
             if cache.get(&idempotency.key).is_some() {
-                return Outcome::Error((Status::Conflict, create_error!(DuplicateNonce)));
+                // dur.io fork: decided by the route, see `is_replayed` (B2)
+                idempotency.replayed = true;
+                return Outcome::Success(idempotency);
             }
 
             cache.put(idempotency.key.clone(), ());
@@ -122,6 +145,7 @@ impl<'r> FromRequest<'r> for IdempotencyKey {
 
         Outcome::Success(IdempotencyKey {
             key: ulid::Ulid::new().to_string(),
+            replayed: false,
         })
     }
 }

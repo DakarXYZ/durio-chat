@@ -6,18 +6,14 @@ use lapin::{
     ConnectionBuilder, ConnectionProperties, ExchangeKind,
 };
 use log::{debug, info};
-use redis_kiss::{get_connection, AsyncCommands, Conn as RedisConnection};
+use redis_kiss::{get_connection, AsyncCommands};
 use revolt_config::config;
 use revolt_database::{events::rabbit::AckEventPayload, Database, AMQP};
-use revolt_result::{Result, ToRevoltError};
+use revolt_result::{create_error, Result, ToRevoltError};
 use serde_json;
 
 pub async fn task(db: Database, amqp: AMQP) -> Result<()> {
     let config = config().await;
-
-    let mut redis = get_connection()
-        .await
-        .expect("Failed to get redis connection");
 
     let uri = AMQPUri {
         scheme: lapin::uri::AMQPScheme::AMQP,
@@ -99,14 +95,9 @@ pub async fn task(db: Database, amqp: AMQP) -> Result<()> {
             if let Ok(payload) = payload {
                 debug!("Received ack event: {payload:?}");
 
-                if let Err(e) = process_channel_ack(
-                    &db,
-                    &amqp,
-                    payload.user_id,
-                    payload.channel_id.unwrap(),
-                    &mut redis,
-                )
-                .await
+                if let Err(e) =
+                    process_channel_ack(&db, &amqp, payload.user_id, payload.channel_id.unwrap())
+                        .await
                 {
                     revolt_config::capture_error(&e);
                     _ = delivery.reject(BasicRejectOptions { requeue: false }).await;
@@ -130,8 +121,13 @@ async fn process_channel_ack(
     amqp: &AMQP,
     user: String,
     channel: String,
-    redis: &mut RedisConnection,
 ) -> Result<()> {
+    // dur.io fork: a pooled connection per ack; one held for the whole task
+    // stayed broken after a Redis restart and every later ack failed (B2)
+    let mut redis = get_connection()
+        .await
+        .map_err(|_| create_error!(InternalError))?;
+
     let message_id: Option<String> = redis
         .get_del(format!("acker:{user}+{channel}"))
         .await

@@ -434,6 +434,24 @@ impl EventV1 {
         }
     }
 
+    /// Publish to Redis (bonfire) without panicking (dur.io fork, B2)
+    ///
+    /// The first calls after a Redis restart meet stale pooled connections,
+    /// so a failed publish is retried; the caller already stored what the
+    /// event announces, so a lost event is only logged.
+    pub(crate) async fn publish_redis(&self, redis_channel: String) {
+        const ATTEMPTS: usize = 3;
+        for attempt in 1..=ATTEMPTS {
+            match redis_kiss::publish(redis_channel.clone(), self).await {
+                Ok(()) => return,
+                Err(error) if attempt == ATTEMPTS => {
+                    log::error!("Failed to publish event to Redis: {error:?}")
+                }
+                Err(_) => {}
+            }
+        }
+    }
+
     /// Publish helper wrapper
     pub async fn p(self, channel: String) {
         #[cfg(debug_assertions)]
@@ -441,7 +459,7 @@ impl EventV1 {
 
         let redis_channel = self.redis_suffix(channel.clone());
 
-        redis_kiss::publish(redis_channel, &self).await.unwrap();
+        self.publish_redis(redis_channel).await;
 
         // dur.io fork: callers already stored what the event announces, a
         // broker outage must not fail their request (B1)
@@ -456,7 +474,7 @@ impl EventV1 {
 
         for channel in &channels {
             let redis_channel = self.redis_suffix(channel.clone());
-            redis_kiss::publish(redis_channel, &self).await.unwrap();
+            self.publish_redis(redis_channel).await;
         }
 
         // dur.io fork: callers already stored what the event announces, a

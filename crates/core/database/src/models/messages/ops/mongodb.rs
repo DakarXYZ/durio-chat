@@ -185,6 +185,30 @@ impl AbstractMessages for MongoDb {
         .map_err(|_| create_database_error!("find", COL))
     }
 
+    /// Fetch the message an author sent to a channel with a nonce, newer than `after` (dur.io fork)
+    async fn fetch_message_by_nonce(
+        &self,
+        channel: &str,
+        author: &str,
+        nonce: &str,
+        after: &str,
+    ) -> Result<Option<Message>> {
+        // channel_id_compound bounds the scan to the window
+        query!(
+            self,
+            find_one,
+            COL,
+            doc! {
+                "channel": channel,
+                "_id": {
+                    "$gt": after
+                },
+                "author": author,
+                "nonce": nonce
+            }
+        )
+    }
+
     /// Update a given message with new information
     async fn update_message(
         &self,

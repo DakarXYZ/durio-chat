@@ -145,10 +145,22 @@ impl Ratelimiter {
             });
         }
 
-        let mut conn = get_connection()
-            .await
-            .expect("Failed to get redis connection")
-            .into_inner();
+        // dur.io fork: without Redis (restart, outage) the request is let
+        // through, like a failed bucket query below already is (B2)
+        let mut conn = match get_connection().await {
+            Ok(conn) => conn.into_inner(),
+            Err(error) => {
+                log::warn!(
+                    "Ratelimiter has no Redis connection, letting the request through: {error:?}"
+                );
+                return Ok(Ratelimiter {
+                    key,
+                    limit,
+                    remaining: limit,
+                    reset: 10000,
+                });
+            }
+        };
 
         let now = now();
         let mut entry = Entry::from(&mut conn, now, key).await;

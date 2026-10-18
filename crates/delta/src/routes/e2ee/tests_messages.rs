@@ -999,3 +999,101 @@ async fn disabled_read_only() {
         assert_violation(status, response);
     }
 }
+
+/// A retried send answers with the stored message instead of 400/409 (B2)
+#[rocket::async_test]
+async fn send_retry_returns_stored_message() {
+    use rocket::http::Header;
+
+    use super::tests::request_with;
+
+    use revolt_database::{MessageFilter, MessageQuery, MessageTimePeriod};
+
+    let harness = TestHarness::new().await;
+    let dm = encrypted_dm(&harness).await;
+    let channel_id = dm.channel.id().to_string();
+    let post = async |session: &Session, body: Value, key: Option<&str>| {
+        let headers = key
+            .map(|key| vec![Header::new("Idempotency-Key", key.to_string())])
+            .unwrap_or_default();
+        request_with(
+            &harness,
+            Method::Post,
+            session,
+            &format!("/channels/{channel_id}/messages"),
+            Some(body),
+            headers,
+        )
+        .await
+    };
+
+    // Same body nonce
+    let nonce = ulid::Ulid::new().to_string();
+    let body = json!({ "encrypted": envelope(&dm.session.id, "one"), "nonce": nonce });
+    let (status, first) = post(&dm.session, body.clone(), None).await;
+    assert_eq!(status, Status::Ok, "{first}");
+    let (status, retry) = post(&dm.session, body, None).await;
+    assert_eq!(status, Status::Ok, "{retry}");
+    assert_eq!(retry["_id"], first["_id"]);
+    assert_eq!(retry["nonce"], json!(nonce));
+
+    // Same Idempotency-Key header and body nonce, as the clients send them
+    let key = ulid::Ulid::new().to_string();
+    let body = json!({
+        "encrypted": envelope(&dm.session.id, "two"),
+        "nonce": ulid::Ulid::new().to_string()
+    });
+    let (status, second) = post(&dm.session, body.clone(), Some(&key)).await;
+    assert_eq!(status, Status::Ok, "{second}");
+    let (status, retry) = post(&dm.session, body, Some(&key)).await;
+    assert_eq!(status, Status::Ok, "{retry}");
+    assert_eq!(retry["_id"], second["_id"]);
+
+    // Only the header: it is the nonce
+    let key = ulid::Ulid::new().to_string();
+    let body = json!({ "encrypted": envelope(&dm.session.id, "three") });
+    let (status, third) = post(&dm.session, body.clone(), Some(&key)).await;
+    assert_eq!(status, Status::Ok, "{third}");
+    let (status, retry) = post(&dm.session, body, Some(&key)).await;
+    assert_eq!(status, Status::Ok, "{retry}");
+    assert_eq!(retry["_id"], third["_id"]);
+
+    // Someone else's nonce or header is still refused, as upstream does
+    let body = json!({ "encrypted": envelope(&dm.other_session.id, "four"), "nonce": nonce });
+    let (status, other) = post(&dm.other_session, body, None).await;
+    assert_eq!(status, Status::BadRequest, "{other}");
+    assert!(
+        matches!(error_type(other.clone()), ErrorType::InvalidOperation),
+        "{other}"
+    );
+    let body = json!({ "encrypted": envelope(&dm.other_session.id, "five") });
+    let (status, other) = post(&dm.other_session, body, Some(&key)).await;
+    assert_eq!(status, Status::Conflict, "{other}");
+
+    // No retry stored a second message
+    let stored = harness
+        .db
+        .fetch_messages(MessageQuery {
+            limit: Some(100),
+            filter: MessageFilter {
+                channel: Some(dm.channel.id().to_string()),
+                author: Some(dm.user.id.clone()),
+                ..Default::default()
+            },
+            time_period: MessageTimePeriod::Absolute {
+                before: None,
+                after: None,
+                sort: None,
+            },
+        })
+        .await
+        .unwrap();
+    let mut ids: Vec<_> = stored.into_iter().map(|message| message.id).collect();
+    ids.sort();
+    let mut expected: Vec<_> = [first, second, third]
+        .iter()
+        .map(|message| message["_id"].as_str().unwrap().to_string())
+        .collect();
+    expected.sort();
+    assert_eq!(ids, expected);
+}
