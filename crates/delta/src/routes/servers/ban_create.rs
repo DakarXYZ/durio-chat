@@ -9,11 +9,9 @@ use revolt_database::{
 use revolt_models::v0;
 use std::time::{Duration, SystemTime};
 
-use revolt_database::events::client::EventV1;
 use revolt_permissions::{calculate_server_permissions, ChannelPermission};
 use revolt_result::{create_error, Result};
 use rocket::{serde::json::Json, State};
-use ulid::Ulid;
 use validator::Validate;
 
 use crate::util::audit_log_reason::AuditLogReason;

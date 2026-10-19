@@ -11,7 +11,7 @@ use revolt_models::v0::{
     UserVoiceState, Webhook,
 };
 
-use crate::{Account, Database, Session, amqp::get_amqp};
+use crate::{Account, Session, amqp::get_amqp};
 
 /// Ping Packet
 #[derive(Serialize, Deserialize, Debug, Clone)]

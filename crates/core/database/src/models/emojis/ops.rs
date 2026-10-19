@@ -1,6 +1,6 @@
 use revolt_result::Result;
 
-use crate::{query, Emoji, PartialEmoji};
+use crate::{Emoji, PartialEmoji};
 
 #[cfg(feature = "mongodb")]
 mod mongodb;

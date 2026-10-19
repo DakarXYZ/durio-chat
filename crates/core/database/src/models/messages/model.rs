@@ -1117,7 +1117,7 @@ impl Message {
 
         db.delete_message(&self.id).await?;
 
-        if let Ok(mut channel) = db.fetch_channel(&self.channel).await {
+        if let Ok(channel) = db.fetch_channel(&self.channel).await {
             match &channel {
                 Channel::DirectMessage {
                     last_message_id, ..

@@ -1,7 +1,6 @@
 use revolt_database::util::permissions::DatabasePermissionQuery;
 use revolt_database::{util::reference::Reference, Database, User};
 use revolt_database::{Member, PartialMember, PartialRole, Role, AMQP, AuditLogEntryAction};
-use revolt_database::voice::{sync_voice_permissions, VoiceClient};
 use revolt_models::v0;
 use revolt_permissions::{
     calculate_channel_permissions, calculate_server_permissions, ChannelPermission, Override,
@@ -41,7 +40,7 @@ pub async fn invite_bot(
 
     match dest.into_inner() {
         v0::InviteBotDestination::Server { server } => {
-            let mut server = db.fetch_server(&server).await?;
+            let server = db.fetch_server(&server).await?;
 
             let mut query = DatabasePermissionQuery::new(db, &user).server(&server);
             let user_permissions = calculate_server_permissions(&mut query).await;

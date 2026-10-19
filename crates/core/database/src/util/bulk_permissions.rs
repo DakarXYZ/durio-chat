@@ -331,35 +331,3 @@ async fn calculate_members_permissions<'a>(
 
     resp
 }
-
-/// Calculates a member's server permissions
-fn calculate_server_permissions(server: &Server, user: &User, member: &Member) -> PermissionValue {
-    if user.privileged || server.owner == user.id {
-        return ChannelPermission::GrantAllSafe.into();
-    }
-
-    let mut permissions: PermissionValue = server.default_permissions.into();
-
-    let mut roles = server
-        .roles
-        .iter()
-        .filter(|(id, _)| member.roles.contains(id))
-        .map(|(_, role)| {
-            let v: Override = role.permissions.into();
-            (role.rank, v)
-        })
-        .collect::<Vec<(i64, Override)>>();
-
-    roles.sort_by(|a, b| b.0.cmp(&a.0));
-    let role_overrides: Vec<Override> = roles.into_iter().map(|(_, v)| v).collect();
-
-    for role in role_overrides {
-        permissions.apply(role);
-    }
-
-    if member.in_timeout() {
-        permissions.restrict(*ALLOW_IN_TIMEOUT);
-    }
-
-    permissions
-}

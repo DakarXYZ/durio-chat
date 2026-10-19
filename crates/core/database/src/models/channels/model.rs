@@ -1,7 +1,6 @@
 #![allow(deprecated)]
 use std::{borrow::Cow, collections::HashMap};
 
-use redis_kiss::get_connection;
 use revolt_config::config;
 use revolt_models::v0::{self, MessageAuthor};
 use revolt_permissions::OverrideField;
@@ -460,7 +459,7 @@ impl Channel {
     }
 
     /// Gets this channel's voice information
-    pub fn voice(&self) -> Option<Cow<VoiceInformation>> {
+    pub fn voice(&self) -> Option<Cow<'_, VoiceInformation>> {
         match self {
             Self::DirectMessage { .. } | Self::Group { .. } => {
                 Some(Cow::Owned(VoiceInformation::default()))

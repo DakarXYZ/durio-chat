@@ -6,7 +6,6 @@ use revolt_models::v0;
 use revolt_permissions::{
     calculate_channel_permissions, ChannelPermission, DEFAULT_WEBHOOK_PERMISSIONS,
 };
-use crate::routes::channels::webhook_fetch_all::fetch_webhooks;
 use revolt_result::{create_error, Result};
 use rocket::{serde::json::Json, State};
 use ulid::Ulid;
@@ -84,6 +83,7 @@ pub async fn create_webhook(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::routes::channels::webhook_fetch_all::fetch_webhooks;
     use crate::{rocket, util::test::TestHarness};
     use revolt_database::{Member, Server};
     use revolt_models::v0;
