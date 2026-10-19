@@ -2,7 +2,7 @@
 //! matrix-sdk-crypto 0.19.1 sends and accepts.
 //!
 //! `fixtures/e2ee/` is a copy of `stoat-crypto/fixtures/{api,envelope}` (CR-01 spike,
-//! stoat-crypto a9aa860). Update both together, the contract only changes with a new version.
+//! stoat-crypto ba1af39). Update both together, the contract only changes with a new version.
 use std::path::PathBuf;
 
 use revolt_models::v0::*;
