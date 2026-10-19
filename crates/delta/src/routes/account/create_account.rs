@@ -2,6 +2,7 @@
 //! POST /account/create
 use std::time::Duration;
 
+use iso8601_timestamp::Timestamp;
 use tokio::time::sleep;
 use revolt_config::config;
 use revolt_database::{
@@ -47,11 +48,20 @@ pub async fn create_account(
     // Ensure password is safe to use
     assert_safe(&data.password).await?;
 
-    // If required, claim a valid invite: each one works once (dur.io fork), concurrent
-    // registrations with the same code cannot both get past this
+    // If required, take a valid invite (dur.io fork): an expired one is refused; a single-use
+    // one is claimed, so concurrent registrations with the same code cannot both get past
+    // this; a multi-use one is only counted once the account exists
     let invite = if config().await.api.registration.invite_only {
         if let Some(invite) = data.invite {
-            db.claim_account_invite(&invite).await?;
+            let invite = db.fetch_account_invite(&invite).await?;
+            if invite.is_expired(Timestamp::now_utc()) {
+                return Err(create_error!(InvalidInvite));
+            }
+
+            if !invite.multi_use {
+                db.claim_account_invite(&invite.id).await?;
+            }
+
             Some(invite)
         } else {
             return Err(create_error!(MissingInvite));
@@ -64,22 +74,26 @@ pub async fn create_account(
     let account = match Account::new(db, data.email, data.password, true).await {
         Ok(account) => account,
         Err(error) => {
-            if let Some(invite) = &invite {
-                db.release_account_invite(invite).await.ok();
+            if let Some(invite) = invite.as_ref().filter(|invite| !invite.multi_use) {
+                db.release_account_invite(&invite.id).await.ok();
             }
 
             return Err(error);
         }
     };
 
-    // Record who used up the invite
-    if let Some(id) = invite {
-        db.save_account_invite(&AccountInvite {
-            id,
-            used: true,
-            claimed_by: Some(account.id),
-        })
-        .await?;
+    // Count the use of a multi-use invite, or record who used up a single-use one
+    if let Some(invite) = invite {
+        if invite.multi_use {
+            db.count_account_invite_use(&invite.id).await?;
+        } else {
+            db.save_account_invite(&AccountInvite {
+                used: true,
+                claimed_by: Some(account.id),
+                ..invite
+            })
+            .await?;
+        }
     }
 
     Ok(EmptyResponse)
@@ -89,6 +103,7 @@ pub async fn create_account(
 mod tests {
     use crate::{rocket, util::test::TestHarness};
     use revolt_config::overwrite_config;
+    use iso8601_timestamp::{Duration as Span, Timestamp};
     use revolt_database::{events::client::EventV1, AccountInvite};
     use revolt_result::{Error, ErrorType};
     use rocket::http::{ContentType, Status};
@@ -211,6 +226,7 @@ mod tests {
             id: "invite".to_string(),
             used: false,
             claimed_by: None,
+            ..Default::default()
         };
 
         invite.save(&harness.db).await.unwrap();
@@ -398,6 +414,7 @@ mod tests {
             id: TestHarness::rand_string(),
             used: false,
             claimed_by: None,
+            ..Default::default()
         };
         invite.save(&harness.db).await.unwrap();
         invite.id
@@ -454,6 +471,7 @@ mod tests {
             id: TestHarness::rand_string(),
             used: true,
             claimed_by: None,
+            ..Default::default()
         };
         invite.save(&harness.db).await.unwrap();
 
@@ -523,5 +541,127 @@ mod tests {
         let invite = harness.db.fetch_account_invite(&code).await.unwrap();
         assert!(!invite.used && invite.claimed_by.is_none());
         assert!(harness.db.claim_account_invite(&code).await.is_ok());
+    }
+
+    /// Invite as made by an admin in the app, expiring in `ttl` (negative: already expired)
+    async fn app_invite(harness: &TestHarness, multi_use: bool, ttl: Span) -> String {
+        let now = Timestamp::now_utc();
+        let invite = AccountInvite {
+            id: TestHarness::rand_string(),
+            expires_at: Some(now.checked_add(ttl).unwrap()),
+            multi_use,
+            created_by: Some("admin".to_string()),
+            created_at: Some(now),
+            ..Default::default()
+        };
+        invite.save(&harness.db).await.unwrap();
+        invite.id
+    }
+
+    #[rocket::async_test]
+    async fn expired_invites_are_refused() {
+        overwrite_config(invite_only_without_email).await;
+        let harness = TestHarness::new().await;
+
+        for multi_use in [false, true] {
+            let code = app_invite(&harness, multi_use, Span::seconds(-1)).await;
+            let email = format!("invite_expired_{multi_use}@validemail.com");
+            assert!(matches!(
+                register(&harness, &email, &code).await,
+                Some(ErrorType::InvalidInvite)
+            ));
+            assert!(
+                harness
+                    .db
+                    .fetch_account_by_normalised_email(&email)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+
+            let invite = harness.db.fetch_account_invite(&code).await.unwrap();
+            assert!(!invite.used && invite.uses == 0);
+        }
+    }
+
+    #[rocket::async_test]
+    async fn single_use_app_invite_works_once() {
+        overwrite_config(invite_only_without_email).await;
+        let harness = TestHarness::new().await;
+        let code = app_invite(&harness, false, Span::hours(1)).await;
+
+        assert!(
+            register(&harness, "invite_app_once_a@validemail.com", &code)
+                .await
+                .is_none()
+        );
+        assert!(matches!(
+            register(&harness, "invite_app_once_b@validemail.com", &code).await,
+            Some(ErrorType::InvalidInvite)
+        ));
+
+        // Claiming keeps the rest of the invite
+        let invite = harness.db.fetch_account_invite(&code).await.unwrap();
+        assert!(invite.used && invite.expires_at.is_some() && invite.created_by.is_some());
+        assert_eq!(
+            invite.claimed_by,
+            Some(account_id(&harness, "invite_app_once_a@validemail.com").await)
+        );
+    }
+
+    #[rocket::async_test]
+    async fn multi_use_invite_counts_accounts() {
+        overwrite_config(invite_only_without_email).await;
+        let harness = TestHarness::new().await;
+        let code = app_invite(&harness, true, Span::hours(1)).await;
+
+        for i in 0..3 {
+            assert!(
+                register(&harness, &format!("invite_multi_{i}@validemail.com"), &code)
+                    .await
+                    .is_none()
+            );
+        }
+
+        let invite = harness.db.fetch_account_invite(&code).await.unwrap();
+        assert_eq!(invite.uses, 3);
+        assert!(!invite.used && invite.claimed_by.is_none());
+
+        // A multi-use invite is never claimed like a single-use one
+        assert!(matches!(
+            harness
+                .db
+                .claim_account_invite(&code)
+                .await
+                .unwrap_err()
+                .error_type,
+            ErrorType::InvalidInvite
+        ));
+    }
+
+    #[rocket::async_test]
+    async fn concurrent_registrations_count_every_use() {
+        overwrite_config(invite_only_without_email).await;
+        let harness = TestHarness::new().await;
+        let code = app_invite(&harness, true, Span::hours(1)).await;
+
+        let emails: Vec<String> = (0..5)
+            .map(|i| format!("invite_multi_race_{i}@validemail.com"))
+            .collect();
+        let results =
+            futures::future::join_all(emails.iter().map(|email| register(&harness, email, &code)))
+                .await;
+        assert!(results.iter().all(|result| result.is_none()));
+
+        let invite = harness.db.fetch_account_invite(&code).await.unwrap();
+        assert_eq!(invite.uses, 5);
+
+        // The increments themselves are atomic
+        futures::future::join_all((0..8).map(|_| harness.db.count_account_invite_use(&code)))
+            .await
+            .into_iter()
+            .for_each(|result| result.unwrap());
+        let invite = harness.db.fetch_account_invite(&code).await.unwrap();
+        assert_eq!(invite.uses, 13);
     }
 }

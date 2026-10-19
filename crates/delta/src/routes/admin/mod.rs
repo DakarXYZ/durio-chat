@@ -7,6 +7,8 @@
 //! Admin actions need 2FA: `POST /admin/elevate` with an MFA ticket (the account must have
 //! TOTP on) allows them from the current session for `[api.admins] elevation_minutes`.
 //! The elevation is stored on the session, so it ends with it (logout, revoke).
+//!
+//! Admins also make registration invites (`/admin/invites`) for `invite_only` instances.
 use iso8601_timestamp::Timestamp;
 use revolt_config::config;
 use revolt_database::{Session, User};
@@ -16,6 +18,7 @@ use rocket::Route;
 
 mod elevate;
 mod find_user;
+mod invites;
 mod session_revoke;
 mod sessions_fetch;
 mod sessions_revoke_all;
@@ -25,6 +28,8 @@ mod status;
 mod tests;
 #[cfg(test)]
 mod tests_elevation;
+#[cfg(test)]
+mod tests_invites;
 
 pub fn routes() -> (Vec<Route>, OpenApi) {
     openapi_get_routes_spec![
@@ -34,7 +39,10 @@ pub fn routes() -> (Vec<Route>, OpenApi) {
         find_user::find_user,
         sessions_fetch::fetch_sessions,
         session_revoke::revoke_session,
-        sessions_revoke_all::revoke_all_sessions
+        sessions_revoke_all::revoke_all_sessions,
+        invites::create_invite,
+        invites::fetch_invites,
+        invites::revoke_invite
     ]
 }
 
