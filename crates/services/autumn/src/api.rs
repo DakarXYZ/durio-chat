@@ -84,7 +84,8 @@ lazy_static! {
         // TODO config
         // .max_capacity(1024 * 1024 * 1024) // Cache up to 1GiB in memory
         // .max_capacity(512 * 1024 * 1024) // Cache up to 512MiB in memory
-        .max_capacity(2 * 1024 * 1024 * 1024) // Cache up to 2GiB in memory
+        // dur.io fork: 512MiB, 2GiB outgrew the container's memory limit with 100MB files
+        .max_capacity(512 * 1024 * 1024) // Cache up to 512MiB in memory
         .time_to_live(Duration::from_secs(5 * 60)) // For up to 5 minutes
         .build();
 }
