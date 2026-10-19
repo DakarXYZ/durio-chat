@@ -129,4 +129,7 @@ jobs:
 
       - name: Logs on failure
         if: failure()
-        run: docker compose -f .github/durio/compose.smoke.yml logs
+        run: |
+          export DURIO_API_IMAGE="ghcr.io/${{ needs.base.outputs.owner }}/durio-api:sha-${GITHUB_SHA::7}"
+          docker compose -f .github/durio/compose.smoke.yml ps -a
+          docker compose -f .github/durio/compose.smoke.yml logs

@@ -19,7 +19,10 @@ services:
       RABBITMQ_DEFAULT_USER: rabbituser
       RABBITMQ_DEFAULT_PASS: rabbitpass
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      # root CLI before the server is up would create ~/.erlang.cookie owned by root and the
+      # broker dies on eacces (and again on every restart, the file stays in the volume):
+      # ask only once the server has written its cookie
+      test: ["CMD-SHELL", "test -f /var/lib/rabbitmq/.erlang.cookie && rabbitmq-diagnostics -q ping"]
       interval: 5s
       retries: 30
 
