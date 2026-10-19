@@ -45,6 +45,11 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # mise installs the toolchain from rust-toolchain.toml with the minimal profile (no clippy);
+      # upstream's self-hosted runners have it preinstalled
+      - name: Install clippy
+        run: rustup component add clippy
+
       - run: mise check
       - run: mise build
       - run: mise docker:start
