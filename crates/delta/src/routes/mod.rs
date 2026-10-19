@@ -4,6 +4,7 @@ pub use rocket::http::Status;
 pub use rocket::response::Redirect;
 use rocket::{Build, Rocket};
 
+mod admin;
 mod bots;
 mod channels;
 mod customisation;
@@ -45,6 +46,7 @@ pub fn mount(config: Settings, mut rocket: Rocket<Build>) -> Rocket<Build> {
             "/push" => push::routes(),
             "/sync" => sync::routes(),
             "/e2ee" => e2ee::routes(),
+            "/admin" => admin::routes(),
             "/webhooks" => webhooks::routes()
         };
     } else {
@@ -66,7 +68,8 @@ pub fn mount(config: Settings, mut rocket: Rocket<Build>) -> Rocket<Build> {
             "/policy" => policy::routes(),
             "/push" => push::routes(),
             "/sync" => sync::routes(),
-            "/e2ee" => e2ee::routes()
+            "/e2ee" => e2ee::routes(),
+            "/admin" => admin::routes()
         };
     }
 
@@ -332,6 +335,13 @@ fn custom_openapi_spec() -> OpenApi {
             Tag {
                 name: "Webhooks".to_owned(),
                 description: Some("Send messages from 3rd party services".to_owned()),
+                ..Default::default()
+            },
+            Tag {
+                name: "Admin".to_owned(),
+                description: Some(
+                    "Instance administration: find users and end their sessions".to_owned(),
+                ),
                 ..Default::default()
             },
             Tag {

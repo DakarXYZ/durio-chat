@@ -100,6 +100,12 @@ expires_after = 2592000  # 30d
 # Minimum allowed length of usernames
 min_username_length = 2
 
+[api.admins]
+# Ids of instance admins (dur.io fork): they can find any user and end their sessions
+# from the client (`/admin` routes), e.g. after a lost phone. Users with `privileged`
+# set in the database are admins as well.
+users = []
+
 [pushd]
 # this changes the names of the queues to not overlap 
 # prod/beta if they happen to be on the same exchange/instance.

@@ -24,7 +24,7 @@ mod to_device_fetch;
 mod to_device_send;
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 #[cfg(test)]
 mod tests_cascade;
 #[cfg(test)]

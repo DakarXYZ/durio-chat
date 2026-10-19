@@ -1,4 +1,5 @@
 mod accounts;
+mod admin;
 mod audit_logs;
 mod bots;
 mod channel_invites;
@@ -22,6 +23,7 @@ mod user_settings;
 mod users;
 
 pub use accounts::*;
+pub use admin::*;
 pub use audit_logs::*;
 pub use bots::*;
 pub use channel_invites::*;

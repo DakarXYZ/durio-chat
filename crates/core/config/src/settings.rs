@@ -222,6 +222,14 @@ pub struct ApiAuditLogs {
     pub expires_after: u64,
 }
 
+/// Instance admins (dur.io fork)
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct ApiAdmins {
+    /// Ids of users who may use the `/admin` routes, e.g. end the sessions of any user
+    #[serde(default)]
+    pub users: Vec<String>,
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct Api {
     pub registration: ApiRegistration,
@@ -231,6 +239,8 @@ pub struct Api {
     pub livekit: ApiLiveKit,
     pub users: ApiUsers,
     pub audit_logs: ApiAuditLogs,
+    #[serde(default)]
+    pub admins: ApiAdmins,
 }
 
 #[derive(Deserialize, Debug, Clone)]
