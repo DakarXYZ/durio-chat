@@ -34,4 +34,11 @@ pub trait AbstractSessions: Sync + Send {
     async fn remove_push_subscription_by_session_id(&self, session_id: &str) -> Result<()>;
 
     async fn update_session_last_seen(&self, session_id: &str, when: Timestamp) -> Result<()>;
+
+    /// Set or clear the admin elevation of a session (dur.io fork)
+    async fn set_session_admin_elevation(
+        &self,
+        session_id: &str,
+        until: Option<Timestamp>,
+    ) -> Result<()>;
 }

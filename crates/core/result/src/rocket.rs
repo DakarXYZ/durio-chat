@@ -138,6 +138,9 @@ impl<'r> Responder<'r, 'static> for Error {
             ErrorType::TooManyPendingToDevice => Status::TooManyRequests,
             ErrorType::DeviceKeysMismatch => Status::Conflict,
             ErrorType::BackupVersionMismatch { .. } => Status::Conflict,
+
+            ErrorType::TotpRequired => Status::Forbidden,
+            ErrorType::AdminElevationRequired => Status::Forbidden,
         };
 
         // Serialize the error data structure into JSON.

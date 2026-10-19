@@ -1,9 +1,9 @@
-use revolt_database::{Database, User};
+use revolt_database::{Database, Session, User};
 use revolt_models::v0;
 use revolt_result::{Result, create_error};
 use rocket::{State, serde::json::Json};
 
-use super::require_admin;
+use super::require_elevated_admin;
 
 /// # Find User
 ///
@@ -13,9 +13,10 @@ use super::require_admin;
 pub async fn find_user(
     db: &State<Database>,
     user: User,
+    session: Session,
     options: v0::OptionsAdminFindUser,
 ) -> Result<Json<v0::AdminUser>> {
-    require_admin(&user).await?;
+    require_elevated_admin(&user, &session).await?;
 
     let query = options.query.trim().trim_start_matches('@');
     let found = match query.rsplit_once('#') {

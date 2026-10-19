@@ -1,16 +1,30 @@
 //! Instance admins end sessions of other users (dur.io fork)
 use std::time::Duration;
 
-use revolt_database::{PartialUser, Session, User, events::client::EventV1};
+use iso8601_timestamp::{Duration as Span, Timestamp};
+use revolt_database::{Account, PartialUser, Session, User, events::client::EventV1};
 use revolt_models::v0;
 use rocket::http::{Method, Status};
 
 use super::super::e2ee::tests::{get, new_device, new_device_user, request};
 use crate::util::test::{PubSubTestHelper, TestHarness};
 
-/// New user with `privileged` set, i.e. an instance admin
-async fn new_admin(harness: &TestHarness) -> (Session, User) {
-    let (_, session, mut user) = harness.new_user().await;
+/// New instance admin whose session may use admin actions (as after `POST /admin/elevate`)
+pub(super) async fn new_admin(harness: &TestHarness) -> (Session, User) {
+    let (_, session, user) = new_plain_admin(harness).await;
+    let until = Timestamp::now_utc().checked_add(Span::minutes(60)).unwrap();
+    harness
+        .db
+        .set_session_admin_elevation(&session.id, Some(until))
+        .await
+        .expect("elevation");
+
+    (session, user)
+}
+
+/// New user with `privileged` set, i.e. an instance admin, without an elevation
+pub(super) async fn new_plain_admin(harness: &TestHarness) -> (Account, Session, User) {
+    let (account, session, mut user) = harness.new_user().await;
     user.update(
         &harness.db,
         PartialUser {
@@ -22,7 +36,7 @@ async fn new_admin(harness: &TestHarness) -> (Session, User) {
     .await
     .expect("privileged");
 
-    (session, user)
+    (account, session, user)
 }
 
 /// Whether an event matching `predicate` arrives within 5 seconds
@@ -304,16 +318,30 @@ async fn admin_routes_in_openapi() {
         ("get", "/admin/users/{target}/sessions"),
         ("delete", "/admin/users/{target}/sessions/{session}"),
         ("delete", "/admin/users/{target}/sessions"),
+        ("post", "/admin/elevate"),
+        ("delete", "/admin/elevate"),
     ];
     for (method, path) in routes {
         assert!(spec["paths"][path][method].is_object(), "{method} {path}");
         assert_eq!(spec["paths"][path][method]["tags"][0], "Admin");
     }
 
-    for schema in ["AdminStatus", "AdminUser"] {
+    for schema in ["AdminStatus", "AdminUser", "AdminElevation"] {
         assert!(
             spec["components"]["schemas"][schema].is_object(),
             "{schema}"
         );
+    }
+    let schemas = &spec["components"]["schemas"];
+    assert!(schemas["AdminStatus"]["properties"]["elevated_until"].is_object());
+    assert!(schemas["AdminElevation"]["properties"]["expires_at"].is_object());
+
+    // `POST /admin/elevate` takes the MFA ticket header
+    let security = spec["paths"]["/admin/elevate"]["post"]["security"].to_string();
+    assert!(security.contains("MFA Ticket"), "{security}");
+
+    let errors = schemas["Error"].to_string();
+    for error in ["TotpRequired", "AdminElevationRequired"] {
+        assert!(errors.contains(&format!("\"{error}\"")), "{error}");
     }
 }

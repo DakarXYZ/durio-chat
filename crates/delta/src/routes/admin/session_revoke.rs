@@ -1,9 +1,9 @@
-use revolt_database::{Database, User, util::reference::Reference};
+use revolt_database::{Database, Session, User, util::reference::Reference};
 use revolt_result::{Result, create_error};
 use rocket::State;
 use rocket_empty::EmptyResponse;
 
-use super::{require_admin, session_owner};
+use super::{require_elevated_admin, session_owner};
 
 /// # End User Session
 ///
@@ -14,10 +14,11 @@ use super::{require_admin, session_owner};
 pub async fn revoke_session(
     db: &State<Database>,
     user: User,
+    current: Session,
     target: Reference<'_>,
     session: &str,
 ) -> Result<EmptyResponse> {
-    require_admin(&user).await?;
+    require_elevated_admin(&user, &current).await?;
     let owner = session_owner(db, target.id).await?;
 
     let session = db.fetch_session(session).await?;

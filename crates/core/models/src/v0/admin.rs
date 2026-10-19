@@ -1,10 +1,21 @@
 //! Instance administration from the client (dur.io fork)
 
+use iso8601_timestamp::Timestamp;
+
 auto_derived!(
     /// # Instance Admin Status
     pub struct AdminStatus {
         /// Whether the current user may use the `/admin` routes of this instance
         pub admin: bool,
+        /// Until when admin actions are allowed from this session (after `POST /admin/elevate`)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub elevated_until: Option<Timestamp>,
+    }
+
+    /// # Admin Elevation
+    pub struct AdminElevation {
+        /// When admin actions from this session need a new elevation
+        pub expires_at: Timestamp,
     }
 
     /// # User Found by an Admin

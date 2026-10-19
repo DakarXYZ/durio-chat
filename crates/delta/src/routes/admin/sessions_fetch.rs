@@ -1,9 +1,9 @@
-use revolt_database::{Database, User, util::reference::Reference};
+use revolt_database::{Database, Session, User, util::reference::Reference};
 use revolt_models::v0;
 use revolt_result::Result;
 use rocket::{State, serde::json::Json};
 
-use super::{require_admin, session_owner};
+use super::{require_elevated_admin, session_owner};
 
 /// # Fetch User Sessions
 ///
@@ -13,9 +13,10 @@ use super::{require_admin, session_owner};
 pub async fn fetch_sessions(
     db: &State<Database>,
     user: User,
+    session: Session,
     target: Reference<'_>,
 ) -> Result<Json<Vec<v0::SessionInfo>>> {
-    require_admin(&user).await?;
+    require_elevated_admin(&user, &session).await?;
     let owner = session_owner(db, target.id).await?;
 
     db.fetch_sessions(&owner.id)

@@ -31,6 +31,11 @@ auto_derived_partial!(
         /// Web Push subscription
         #[serde(skip_serializing_if = "Option::is_none")]
         pub subscription: Option<WebPushSubscription>,
+
+        /// Until when an instance admin may use the `/admin` routes from this session
+        /// (dur.io fork, set by `POST /admin/elevate`), gone with the session
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        pub admin_elevated_until: Option<Timestamp>,
     },
     "PartialSession"
 );

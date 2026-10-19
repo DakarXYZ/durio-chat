@@ -133,6 +133,9 @@ impl IntoResponse for Error {
             ErrorType::TooManyPendingToDevice => StatusCode::TOO_MANY_REQUESTS,
             ErrorType::DeviceKeysMismatch => StatusCode::CONFLICT,
             ErrorType::BackupVersionMismatch { .. } => StatusCode::CONFLICT,
+
+            ErrorType::TotpRequired => StatusCode::FORBIDDEN,
+            ErrorType::AdminElevationRequired => StatusCode::FORBIDDEN,
         };
 
         let mut response = (status, Json(&self)).into_response();

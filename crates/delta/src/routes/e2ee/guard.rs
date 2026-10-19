@@ -131,6 +131,7 @@ mod tests {
             last_seen: Timestamp::now_utc(),
             origin: None,
             subscription: None,
+            admin_elevated_until: None,
         }
     }
 

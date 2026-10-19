@@ -223,11 +223,27 @@ pub struct ApiAuditLogs {
 }
 
 /// Instance admins (dur.io fork)
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct ApiAdmins {
     /// Ids of users who may use the `/admin` routes, e.g. end the sessions of any user
     #[serde(default)]
     pub users: Vec<String>,
+    /// How long admin actions stay allowed after `POST /admin/elevate` (2FA), in minutes
+    #[serde(default = "default_elevation_minutes")]
+    pub elevation_minutes: u64,
+}
+
+impl Default for ApiAdmins {
+    fn default() -> Self {
+        ApiAdmins {
+            users: vec![],
+            elevation_minutes: default_elevation_minutes(),
+        }
+    }
+}
+
+fn default_elevation_minutes() -> u64 {
+    60
 }
 
 #[derive(Deserialize, Debug, Clone)]

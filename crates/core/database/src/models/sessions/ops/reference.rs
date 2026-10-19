@@ -98,4 +98,18 @@ impl AbstractSessions for ReferenceDb {
 
         Ok(())
     }
+
+    async fn set_session_admin_elevation(
+        &self,
+        session_id: &str,
+        until: Option<Timestamp>,
+    ) -> Result<()> {
+        let mut sessions = self.sessions.lock().await;
+
+        if let Some(session) = sessions.get_mut(session_id) {
+            session.admin_elevated_until = until;
+        };
+
+        Ok(())
+    }
 }

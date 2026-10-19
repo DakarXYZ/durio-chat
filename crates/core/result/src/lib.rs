@@ -267,6 +267,12 @@ pub enum ErrorType {
     BackupVersionMismatch {
         current_version: String,
     },
+
+    // ? Instance admin errors (dur.io fork)
+    /// Admin actions need an authenticator app (TOTP) on the admin's account
+    TotpRequired,
+    /// Admin actions need `POST /admin/elevate` with an MFA ticket on this session first
+    AdminElevationRequired,
 }
 
 #[macro_export]

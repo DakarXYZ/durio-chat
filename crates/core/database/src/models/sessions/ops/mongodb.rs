@@ -139,4 +139,30 @@ impl AbstractSessions for MongoDb {
             .map(|_| ())
             .map_err(|_| create_database_error!("update_one", COL))
     }
+
+    async fn set_session_admin_elevation(
+        &self,
+        session_id: &str,
+        until: Option<Timestamp>,
+    ) -> Result<()> {
+        let update = match until {
+            Some(until) => doc! {
+                "$set": {
+                    "admin_elevated_until": to_bson(&until)
+                        .map_err(|_| create_database_error!("to_bson", COL))?
+                }
+            },
+            None => doc! {
+                "$unset": {
+                    "admin_elevated_until": 1
+                }
+            },
+        };
+
+        self.col::<Session>(COL)
+            .update_one(doc! { "_id": session_id }, update)
+            .await
+            .map(|_| ())
+            .map_err(|_| create_database_error!("update_one", COL))
+    }
 }

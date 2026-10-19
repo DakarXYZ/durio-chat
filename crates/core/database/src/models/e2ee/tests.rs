@@ -858,6 +858,7 @@ async fn prune_orphans() {
         last_seen: Timestamp::now_utc(),
         origin: None,
         subscription: None,
+        admin_elevated_until: None,
     };
     db.save_session(&session).await.unwrap();
 

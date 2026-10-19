@@ -3,12 +3,18 @@
 //! Admins are the users listed in `[api.admins] users` and users with `privileged` set.
 //! They can find any user and end their sessions, e.g. after a lost phone. Every action
 //! is logged with the admin's id; tokens never leave the server.
+//!
+//! Admin actions need 2FA: `POST /admin/elevate` with an MFA ticket (the account must have
+//! TOTP on) allows them from the current session for `[api.admins] elevation_minutes`.
+//! The elevation is stored on the session, so it ends with it (logout, revoke).
+use iso8601_timestamp::Timestamp;
 use revolt_config::config;
-use revolt_database::User;
+use revolt_database::{Session, User};
 use revolt_result::{Result, create_error};
 use revolt_rocket_okapi::revolt_okapi::openapi3::OpenApi;
 use rocket::Route;
 
+mod elevate;
 mod find_user;
 mod session_revoke;
 mod sessions_fetch;
@@ -17,10 +23,14 @@ mod status;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_elevation;
 
 pub fn routes() -> (Vec<Route>, OpenApi) {
     openapi_get_routes_spec![
         status::status,
+        elevate::elevate,
+        elevate::end_elevation,
         find_user::find_user,
         sessions_fetch::fetch_sessions,
         session_revoke::revoke_session,
@@ -47,6 +57,29 @@ async fn require_admin(user: &User) -> Result<()> {
     }
 }
 
+/// Whether an elevation lasting `until` is still active at `now`
+fn elevation_active(until: Option<Timestamp>, now: Timestamp) -> bool {
+    until.is_some_and(|until| until > now)
+}
+
+/// Until when `session` may use admin actions, if it still may
+fn active_elevation(session: &Session) -> Option<Timestamp> {
+    session
+        .admin_elevated_until
+        .filter(|until| elevation_active(Some(*until), Timestamp::now_utc()))
+}
+
+/// Fail unless `user` is an instance admin with an active elevation on `session`
+async fn require_elevated_admin(user: &User, session: &Session) -> Result<()> {
+    require_admin(user).await?;
+
+    if session.user_id == user.id && active_elevation(session).is_some() {
+        Ok(())
+    } else {
+        Err(create_error!(AdminElevationRequired))
+    }
+}
+
 /// Target user of an admin action, bots have no sessions
 async fn session_owner(db: &revolt_database::Database, id: &str) -> Result<User> {
     let user = db.fetch_user(id).await?;
@@ -61,7 +94,9 @@ async fn session_owner(db: &revolt_database::Database, id: &str) -> Result<User>
 mod unit {
     use revolt_database::{BotInformation, User};
 
-    use super::is_admin;
+    use iso8601_timestamp::{Duration, Timestamp};
+
+    use super::{elevation_active, is_admin};
 
     fn user(id: &str) -> User {
         User {
@@ -94,5 +129,17 @@ mod unit {
         });
 
         assert!(!is_admin(&bot, &["A".to_string()]));
+    }
+
+    #[test]
+    fn elevation_expires() {
+        let now = Timestamp::now_utc();
+        let later = now.checked_add(Duration::minutes(60)).unwrap();
+        let earlier = now.checked_sub(Duration::seconds(1)).unwrap();
+
+        assert!(elevation_active(Some(later), now));
+        assert!(!elevation_active(Some(earlier), now));
+        assert!(!elevation_active(Some(now), now));
+        assert!(!elevation_active(None, now));
     }
 }
