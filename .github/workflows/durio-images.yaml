@@ -55,6 +55,10 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: ${{ steps.owner.outputs.base }}
+          # the Dockerfile defaults to 10 jobs (upstream's big runners): with lto = true the
+          # service binaries link at once and a 16 GB runner dies without an error line
+          build-args: |
+            CARGO_BUILD_JOBS=2
           cache-from: type=registry,ref=ghcr.io/${{ steps.owner.outputs.owner }}/durio-buildcache:base
           cache-to: type=registry,ref=ghcr.io/${{ steps.owner.outputs.owner }}/durio-buildcache:base,mode=max
 
