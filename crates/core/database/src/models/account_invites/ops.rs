@@ -13,4 +13,11 @@ pub trait AbstractAccountInvites: Sync + Send {
 
     /// Save invite
     async fn save_account_invite(&self, invite: &AccountInvite) -> Result<()>;
+
+    /// Mark an unused invite as used, atomically: of concurrent claims only one succeeds
+    /// (dur.io fork). `InvalidInvite` if it does not exist or is used already.
+    async fn claim_account_invite(&self, id: &str) -> Result<()>;
+
+    /// Make a claimed invite usable again, e.g. when creating the account failed (dur.io fork)
+    async fn release_account_invite(&self, id: &str) -> Result<()>;
 }
