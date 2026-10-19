@@ -630,10 +630,10 @@ mod tests {
     async fn publish_reconnects_after_connection_loss() {
         let config = revolt_config::config().await;
         let amqp = AMQP::new_auto().await;
-        amqp.connection()
-            .create_channel()
-            .await
-            .unwrap()
+        // closed explicitly below: a dropped lapin channel closes in the background, and a
+        // connection close racing it fails with InvalidChannelState(Closing, "channel.close")
+        let declare = amqp.connection().create_channel().await.unwrap();
+        declare
             .exchange_declare(
                 config.rabbit.default_exchange.clone().into(),
                 ExchangeKind::Topic,
@@ -645,6 +645,7 @@ mod tests {
             )
             .await
             .unwrap();
+        declare.close(200, "declared".into()).await.unwrap();
 
         amqp.process_ack("user", Some("channel"), None)
             .await
