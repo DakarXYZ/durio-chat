@@ -1,8 +1,8 @@
 use bson::{to_bson, Document};
 use futures::try_join;
 use futures::StreamExt;
-use mongodb::options::FindOptions;
-use revolt_models::v0::MessageSort;
+use mongodb::options::{FindOptions, ReturnDocument};
+use revolt_models::v0::{MessageSort, Poll};
 use revolt_result::Result;
 use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
@@ -296,6 +296,74 @@ impl AbstractMessages for MongoDb {
             .await
             .map(|_| ())
             .map_err(|_| create_database_error!("update_one", COL))
+    }
+
+    /// Make `answers` the votes of `user` in the open poll of a message (dur.io fork)
+    async fn vote_poll(&self, id: &str, user: &str, answers: &[String]) -> Result<Option<Poll>> {
+        // one pipeline update: every answer loses the user, the picked ones get them back
+        let message = self
+            .col::<Message>(COL)
+            .find_one_and_update(
+                doc! {
+                    "_id": id,
+                    "poll": { "$exists": true },
+                    "poll.closed": { "$ne": true },
+                },
+                vec![doc! {
+                    "$set": {
+                        "poll.answers": {
+                            "$map": {
+                                "input": "$poll.answers",
+                                "as": "answer",
+                                "in": {
+                                    "$mergeObjects": [
+                                        "$$answer",
+                                        {
+                                            "votes": {
+                                                "$cond": [
+                                                    { "$in": ["$$answer.id", answers.to_vec()] },
+                                                    {
+                                                        "$setUnion": [
+                                                            { "$ifNull": ["$$answer.votes", []] },
+                                                            [user]
+                                                        ]
+                                                    },
+                                                    {
+                                                        "$setDifference": [
+                                                            { "$ifNull": ["$$answer.votes", []] },
+                                                            [user]
+                                                        ]
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }],
+            )
+            .return_document(ReturnDocument::After)
+            .await
+            .map_err(|_| create_database_error!("find_one_and_update", COL))?;
+
+        Ok(message.and_then(|message| message.poll))
+    }
+
+    /// Close the poll of a message (dur.io fork)
+    async fn close_poll(&self, id: &str) -> Result<Option<Poll>> {
+        let message = self
+            .col::<Message>(COL)
+            .find_one_and_update(
+                doc! { "_id": id, "poll": { "$exists": true } },
+                doc! { "$set": { "poll.closed": true } },
+            )
+            .return_document(ReturnDocument::After)
+            .await
+            .map_err(|_| create_database_error!("find_one_and_update", COL))?;
+
+        Ok(message.and_then(|message| message.poll))
     }
 
     /// Remove reaction from a message

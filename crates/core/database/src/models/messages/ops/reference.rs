@@ -4,6 +4,7 @@ use crate::{
 };
 use futures::future::try_join_all;
 use indexmap::IndexSet;
+use revolt_models::v0::Poll;
 use revolt_result::Result;
 use std::collections::HashMap;
 use std::time::SystemTime;
@@ -284,6 +285,40 @@ impl AbstractMessages for ReferenceDb {
         } else {
             Err(create_error!(NotFound))
         }
+    }
+
+    /// Make `answers` the votes of `user` in the open poll of a message (dur.io fork)
+    async fn vote_poll(&self, id: &str, user: &str, answers: &[String]) -> Result<Option<Poll>> {
+        let mut messages = self.messages.lock().await;
+        let Some(poll) = messages
+            .get_mut(id)
+            .and_then(|message| message.poll.as_mut())
+            .filter(|poll| !poll.closed)
+        else {
+            return Ok(None);
+        };
+
+        for answer in &mut poll.answers {
+            if answers.contains(&answer.id) {
+                answer.votes.insert(user.to_string());
+            } else {
+                answer.votes.shift_remove(user);
+            }
+        }
+
+        Ok(Some(poll.clone()))
+    }
+
+    /// Close the poll of a message (dur.io fork)
+    async fn close_poll(&self, id: &str) -> Result<Option<Poll>> {
+        let mut messages = self.messages.lock().await;
+        Ok(messages
+            .get_mut(id)
+            .and_then(|message| message.poll.as_mut())
+            .map(|poll| {
+                poll.closed = true;
+                poll.clone()
+            }))
     }
 
     /// Remove reaction from a message

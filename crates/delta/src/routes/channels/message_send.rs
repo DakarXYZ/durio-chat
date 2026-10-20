@@ -305,6 +305,7 @@ mod test {
                 interactions: None,
                 flags: None,
                 encrypted: None,
+                poll: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -346,6 +347,7 @@ mod test {
                 interactions: None,
                 flags: None,
                 encrypted: None,
+                poll: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -396,6 +398,7 @@ mod test {
                 interactions: None,
                 flags: None,
                 encrypted: None,
+                poll: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -443,6 +446,7 @@ mod test {
                 interactions: None,
                 flags: None,
                 encrypted: None,
+                poll: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -495,6 +499,7 @@ mod test {
                 interactions: None,
                 flags: None,
                 encrypted: None,
+                poll: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -533,6 +538,7 @@ mod test {
                 interactions: None,
                 flags: None,
                 encrypted: None,
+                poll: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -565,6 +571,7 @@ mod test {
                 interactions: None,
                 flags: None,
                 encrypted: None,
+                poll: None,
             },
             v0::MessageAuthor::User(&user.clone().into(&harness.db, Some(&user)).await),
             Some(user.clone().into(&harness.db, Some(&user)).await),
@@ -616,6 +623,7 @@ mod test {
                 interactions: None,
                 flags: None,
                 encrypted: None,
+                poll: None,
             },
             v0::MessageAuthor::User(
                 &other_user
@@ -662,6 +670,7 @@ mod test {
                 interactions: None,
                 flags: None,
                 encrypted: None,
+                poll: None,
             },
             v0::MessageAuthor::User(
                 &other_user
@@ -733,6 +742,7 @@ mod test {
                 interactions: None,
                 flags: None,
                 encrypted: None,
+                poll: None,
             },
             v0::MessageAuthor::User(
                 &other_user

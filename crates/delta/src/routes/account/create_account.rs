@@ -273,6 +273,7 @@ mod tests {
     /// dur.io: a server invite lets a friend sign up on an invite-only server; signing up does
     /// not count a use, joining does
     #[rocket::async_test]
+    #[allow(clippy::disallowed_methods)]
     async fn success_server_invite() {
         overwrite_config(|config| config.api.registration.invite_only = true).await;
 
@@ -315,6 +316,7 @@ mod tests {
 
     /// dur.io: an expired or used-up server invite is refused like an unknown code
     #[rocket::async_test]
+    #[allow(clippy::disallowed_methods)]
     async fn fail_server_invite_used_up() {
         overwrite_config(|config| config.api.registration.invite_only = true).await;
 

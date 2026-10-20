@@ -76,6 +76,8 @@ impl Message {
                 .as_ref()
                 .is_some_and(|embeds| !embeds.is_empty())
             || data.masquerade.is_some()
+            // dur.io fork: a poll is plain text on the server
+            || data.poll.is_some()
         {
             return Err(create_error!(EncryptedChannelViolation));
         }

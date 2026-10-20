@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::time::SystemTime;
+use revolt_models::v0::Poll;
 use revolt_result::Result;
 
 use crate::{AppendMessage, FieldsMessage, Message, MessageQuery, PartialMessage};
@@ -45,6 +46,13 @@ pub trait AbstractMessages: Sync + Send {
 
     /// Remove reaction from a message
     async fn clear_reaction(&self, id: &str, emoji: &str) -> Result<()>;
+
+    /// Make `answers` the votes of `user` in the open poll of a message (dur.io fork), in one
+    /// step; the poll afterwards, `None` when the message has no open poll
+    async fn vote_poll(&self, id: &str, user: &str, answers: &[String]) -> Result<Option<Poll>>;
+
+    /// Close the poll of a message (dur.io fork); the poll afterwards, `None` without a poll
+    async fn close_poll(&self, id: &str) -> Result<Option<Poll>>;
 
     /// Delete a message from the database by its id
     async fn delete_message(&self, id: &str) -> Result<()>;

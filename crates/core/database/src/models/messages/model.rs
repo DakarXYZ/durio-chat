@@ -43,6 +43,9 @@ auto_derived_partial!(
         /// Encrypted content (end-to-end encrypted channels)
         #[serde(skip_serializing_if = "Option::is_none")]
         pub encrypted: Option<v0::EncryptedEnvelope>,
+        /// Poll of this message (dur.io fork)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub poll: Option<v0::Poll>,
         /// System message
         #[serde(skip_serializing_if = "Option::is_none")]
         pub system: Option<SystemMessage>,
@@ -250,6 +253,7 @@ impl Default for Message {
             webhook: None,
             content: None,
             encrypted: None,
+            poll: None,
             system: None,
             attachments: None,
             edited: None,
@@ -317,9 +321,13 @@ impl Message {
             && (data.attachments.as_ref().is_none_or(|v| v.is_empty()))
             && (data.embeds.as_ref().is_none_or(|v| v.is_empty()))
             && data.encrypted.is_none()
+            && data.poll.is_none()
         {
             return Err(create_error!(EmptyMessage));
         }
+
+        // dur.io fork: a poll has its answers numbered in order
+        let poll = data.poll.as_ref().map(Message::new_poll).transpose()?;
 
         let allow_mass_mentions = allow_mentions && config.features.mass_mentions_enabled;
 
@@ -646,6 +654,7 @@ impl Message {
         // Set content
         message.content = data.content;
         message.encrypted = data.encrypted;
+        message.poll = poll;
 
         // Pass-through nonce value for clients
         message.nonce = Some(idempotency.into_key());

@@ -43,6 +43,9 @@ auto_derived_partial!(
         /// Encrypted content (end-to-end encrypted channels)
         #[serde(skip_serializing_if = "Option::is_none")]
         pub encrypted: Option<EncryptedEnvelope>,
+        /// Poll of this message (dur.io fork)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub poll: Option<Poll>,
         /// System message
         #[serde(skip_serializing_if = "Option::is_none")]
         pub system: Option<SystemMessage>,
@@ -164,6 +167,51 @@ auto_derived!(
         #[serde(skip_serializing_if = "Option::is_none")]
         #[validate(length(min = 1, max = 128), regex = "RE_COLOUR")]
         pub colour: Option<String>,
+    }
+
+    /// Poll attached to a message (dur.io fork)
+    pub struct Poll {
+        /// The question
+        pub question: String,
+        /// The answers, in the order shown
+        pub answers: Vec<PollAnswer>,
+        /// Whether a user may pick more than one answer
+        #[serde(skip_serializing_if = "crate::if_false", default)]
+        pub multiple: bool,
+        /// Whether the poll takes no more votes
+        #[serde(skip_serializing_if = "crate::if_false", default)]
+        pub closed: bool,
+    }
+
+    /// One answer of a poll (dur.io fork)
+    pub struct PollAnswer {
+        /// Id of the answer within its poll
+        pub id: String,
+        /// Text of the answer
+        pub text: String,
+        /// Ids of the users who picked it
+        #[serde(default)]
+        pub votes: IndexSet<String>,
+    }
+
+    /// Poll to attach to a new message (dur.io fork)
+    #[cfg_attr(feature = "validator", derive(Validate))]
+    pub struct DataPoll {
+        /// The question
+        #[cfg_attr(feature = "validator", validate(length(min = 1, max = 300)))]
+        pub question: String,
+        /// The answers (2 to 10, each 1 to 100 characters)
+        #[cfg_attr(feature = "validator", validate(length(min = 2, max = 10)))]
+        pub answers: Vec<String>,
+        /// Whether a user may pick more than one answer
+        #[serde(default)]
+        pub multiple: bool,
+    }
+
+    /// The answers a user picks in a poll; empty takes the vote back (dur.io fork)
+    pub struct DataPollVote {
+        /// Ids of the picked answers
+        pub answers: Vec<String>,
     }
 
     /// Information to guide interactions on this message
@@ -295,6 +343,11 @@ auto_derived!(
         #[cfg_attr(feature = "validator", validate)]
         #[serde(skip_serializing_if = "Option::is_none")]
         pub encrypted: Option<EncryptedEnvelope>,
+
+        /// Poll to attach (dur.io fork); not in end-to-end encrypted channels
+        #[cfg_attr(feature = "validator", validate)]
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        pub poll: Option<DataPoll>,
     }
 
     /// Options for querying messages
@@ -508,8 +561,11 @@ impl PushNotification {
             super::e2ee_push_body(author.as_ref().map_or("Revolt", |author| author.username()))
         } else if let Some(ref sys) = msg.system {
             sys.clone().into()
-        } else if let Some(ref text) = msg.content {
+        } else if let Some(text) = msg.content.as_ref().filter(|text| !text.is_empty()) {
             text.clone()
+        } else if let Some(poll) = &msg.poll {
+            // dur.io fork: a poll without text
+            format!("📊 {}", poll.question)
         } else if let Some(text) = msg.embeds.as_ref().and_then(|embeds| match embeds.first() {
             Some(Embed::Image(_)) => Some("Sent an image".to_string()),
             Some(Embed::Video(_)) => Some("Sent a video".to_string()),

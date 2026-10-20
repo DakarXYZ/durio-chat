@@ -17,6 +17,7 @@ mod message_delete;
 mod message_edit;
 mod message_fetch;
 mod message_pin;
+mod message_poll;
 mod message_query;
 mod message_react;
 mod message_search;
@@ -58,6 +59,8 @@ pub fn routes() -> (Vec<Route>, OpenApi) {
         message_react::react_message,
         message_unreact::unreact_message,
         message_clear_reactions::clear_reactions,
+        message_poll::vote_poll,
+        message_poll::close_poll,
         webhook_create::create_webhook,
         webhook_fetch_all::fetch_webhooks,
     ]
