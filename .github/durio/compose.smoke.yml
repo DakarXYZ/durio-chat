@@ -4,7 +4,8 @@ name: durio-smoke
 
 services:
   database:
-    image: docker.io/mongo:8.0.34 # as in durio-self-hosted; the floating :8 may move to a version that does not start here
+    # MongoDB 8 does not start on Linux 6.19+ (SERVER-121912), which the GitHub runners now have; 7.0 does
+    image: docker.io/mongo:7.0.45
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 5s

@@ -9,7 +9,8 @@ services:
 
   # MongoDB
   database:
-    image: mirror.gcr.io/mongo
+    # dur.io: MongoDB 8 does not start on Linux 6.19+ (SERVER-121912), which the GitHub runners now have; 7.0 does
+    image: docker.io/library/mongo:7.0.45
     command: mongod --replSet rs0
     ports:
       - "27017:27017"

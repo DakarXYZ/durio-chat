@@ -114,8 +114,7 @@ jobs:
   smoke:
     name: Smoke test
     needs: [base, services]
-    # ubuntu-24.04, not -latest: on the Ubuntu 26 runners (kernel 6.19+) MongoDB refuses to start (SERVER-121912)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
