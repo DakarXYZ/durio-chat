@@ -4,7 +4,7 @@ name: durio-smoke
 
 services:
   database:
-    image: docker.io/mongo:8
+    image: docker.io/mongo:8.0.34 # as in durio-self-hosted; the floating :8 may move to a version that does not start here
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 5s
