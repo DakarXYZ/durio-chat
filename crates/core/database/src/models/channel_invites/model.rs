@@ -65,6 +65,28 @@ impl Invite {
         }
     }
 
+    /// Whether the invite can still be joined at `now`: not expired, uses left (dur.io: an
+    /// invite-only server also takes it to create an account, see `create_account`)
+    pub fn is_usable(&self, now: Timestamp) -> bool {
+        match self {
+            Invite::Server {
+                max_uses,
+                uses,
+                expires,
+                ..
+            }
+            | Invite::Group {
+                max_uses,
+                uses,
+                expires,
+                ..
+            } => {
+                expires.is_none_or(|expires| expires > now)
+                    && max_uses.is_none_or(|max_uses| *uses < max_uses)
+            }
+        }
+    }
+
     /// Get the ID of the user who created this invite
     pub fn creator(&'_ self) -> &'_ str {
         match self {

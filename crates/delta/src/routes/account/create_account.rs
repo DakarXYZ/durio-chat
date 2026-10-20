@@ -48,21 +48,34 @@ pub async fn create_account(
     // Ensure password is safe to use
     assert_safe(&data.password).await?;
 
-    // If required, take a valid invite (dur.io fork): an expired one is refused; a single-use
-    // one is claimed, so concurrent registrations with the same code cannot both get past
-    // this; a multi-use one is only counted once the account exists
+    // If required, take a valid invite (dur.io fork). An invite to a server or group works
+    // too: friends get one link, `/invite/<code>`, sign up with it and then join with it
+    // (joining counts its use, signing up does not). Otherwise an account invite: an expired
+    // one is refused; a single-use one is claimed, so concurrent registrations with the same
+    // code cannot both get past this; a multi-use one is only counted once the account exists
     let invite = if config().await.api.registration.invite_only {
         if let Some(invite) = data.invite {
-            let invite = db.fetch_account_invite(&invite).await?;
-            if invite.is_expired(Timestamp::now_utc()) {
-                return Err(create_error!(InvalidInvite));
-            }
+            match db.fetch_invite(&invite).await {
+                Ok(server_invite) => {
+                    if !server_invite.is_usable(Timestamp::now_utc()) {
+                        return Err(create_error!(InvalidInvite));
+                    }
 
-            if !invite.multi_use {
-                db.claim_account_invite(&invite.id).await?;
-            }
+                    None
+                }
+                Err(_) => {
+                    let invite = db.fetch_account_invite(&invite).await?;
+                    if invite.is_expired(Timestamp::now_utc()) {
+                        return Err(create_error!(InvalidInvite));
+                    }
 
-            Some(invite)
+                    if !invite.multi_use {
+                        db.claim_account_invite(&invite.id).await?;
+                    }
+
+                    Some(invite)
+                }
+            }
         } else {
             return Err(create_error!(MissingInvite));
         }
@@ -104,7 +117,7 @@ mod tests {
     use crate::{rocket, util::test::TestHarness};
     use revolt_config::overwrite_config;
     use iso8601_timestamp::{Duration as Span, Timestamp};
-    use revolt_database::{events::client::EventV1, AccountInvite};
+    use revolt_database::{events::client::EventV1, AccountInvite, Invite};
     use revolt_result::{Error, ErrorType};
     use rocket::http::{ContentType, Status};
     use crate::util::test::PubSubTestHelper;
@@ -255,6 +268,98 @@ mod tests {
             .expect("`Invite`");
 
         assert!(invite.used);
+    }
+
+    /// dur.io: a server invite lets a friend sign up on an invite-only server; signing up does
+    /// not count a use, joining does
+    #[rocket::async_test]
+    async fn success_server_invite() {
+        overwrite_config(|config| config.api.registration.invite_only = true).await;
+
+        let harness = TestHarness::new().await;
+
+        harness
+            .db
+            .insert_invite(&Invite::Server {
+                code: "srvinvite".to_string(),
+                server: "server".to_string(),
+                creator: "creator".to_string(),
+                channel: "channel".to_string(),
+                max_uses: Some(1),
+                uses: 0,
+                expires: None,
+            })
+            .await
+            .unwrap();
+
+        let res = harness
+            .client
+            .post("/auth/account/create")
+            .header(ContentType::JSON)
+            .body(
+                json!({
+                    "email": "success_server_invite@validemail.com",
+                    "password": "valid password",
+                    "invite": "srvinvite"
+                })
+                .to_string(),
+            )
+            .dispatch()
+            .await;
+
+        assert_eq!(res.status(), Status::NoContent);
+
+        let invite = harness.db.fetch_invite("srvinvite").await.expect("`Invite`");
+        assert!(matches!(invite, Invite::Server { uses: 0, .. }));
+    }
+
+    /// dur.io: an expired or used-up server invite is refused like an unknown code
+    #[rocket::async_test]
+    async fn fail_server_invite_used_up() {
+        overwrite_config(|config| config.api.registration.invite_only = true).await;
+
+        let harness = TestHarness::new().await;
+
+        let past = Timestamp::now_utc().checked_add(Span::seconds(-60)).unwrap();
+        for (code, max_uses, uses, expires) in [
+            ("srvused", Some(2), 2, None),
+            ("srvexpired", None, 0, Some(past)),
+        ] {
+            harness
+                .db
+                .insert_invite(&Invite::Server {
+                    code: code.to_string(),
+                    server: "server".to_string(),
+                    creator: "creator".to_string(),
+                    channel: "channel".to_string(),
+                    max_uses,
+                    uses,
+                    expires,
+                })
+                .await
+                .unwrap();
+
+            let res = harness
+                .client
+                .post("/auth/account/create")
+                .header(ContentType::JSON)
+                .body(
+                    json!({
+                        "email": format!("fail_{code}@validemail.com"),
+                        "password": "valid password",
+                        "invite": code
+                    })
+                    .to_string(),
+                )
+                .dispatch()
+                .await;
+
+            assert_eq!(res.status(), Status::BadRequest, "{code}");
+            assert!(matches!(
+                res.into_json::<Error>().await.unwrap().error_type,
+                ErrorType::InvalidInvite,
+            ));
+        }
     }
 
     #[rocket::async_test]
