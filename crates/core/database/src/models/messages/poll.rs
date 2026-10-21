@@ -41,6 +41,7 @@ impl Message {
                 .collect(),
             multiple: data.multiple,
             closed: false,
+            final_votes: data.final_votes,
         })
     }
 
@@ -69,7 +70,17 @@ impl Message {
             return Err(create_error!(InvalidProperty));
         }
 
-        // closed meanwhile, or the message is gone
+        // a final vote stays as it was given
+        if poll.final_votes
+            && poll
+                .answers
+                .iter()
+                .any(|answer| answer.votes.contains(&user.id))
+        {
+            return Err(create_error!(InvalidOperation));
+        }
+
+        // closed meanwhile, voted meanwhile (final votes), or the message is gone
         let poll = db
             .vote_poll(&self.id, &user.id, &picked)
             .await?

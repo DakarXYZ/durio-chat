@@ -294,6 +294,13 @@ impl AbstractMessages for ReferenceDb {
             .get_mut(id)
             .and_then(|message| message.poll.as_mut())
             .filter(|poll| !poll.closed)
+            .filter(|poll| {
+                !poll.final_votes
+                    || poll
+                        .answers
+                        .iter()
+                        .all(|answer| !answer.votes.contains(user))
+            })
         else {
             return Ok(None);
         };

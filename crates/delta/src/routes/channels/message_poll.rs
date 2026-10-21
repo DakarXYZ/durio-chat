@@ -221,6 +221,46 @@ mod tests {
     }
 
     #[rocket::async_test]
+    async fn final_votes_stay() {
+        let harness = TestHarness::new().await;
+        let (_, session, user) = harness.new_user().await;
+        let (_, channels) = harness.new_server(&user).await;
+        let channel = channels[0].id().to_string();
+
+        let message: v0::Message = harness
+            .client
+            .post(format!("/channels/{channel}/messages"))
+            .header(ContentType::JSON)
+            .header(Header::new("x-session-token", session.token.to_string()))
+            .body(
+                json!({
+                    "poll": { "question": "Q?", "answers": ["A", "B"], "final_votes": true }
+                })
+                .to_string(),
+            )
+            .dispatch()
+            .await
+            .into_json()
+            .await
+            .expect("`Message`");
+        assert!(message.poll.as_ref().expect("`Poll`").final_votes);
+
+        // nothing given yet: an empty pick changes nothing and is fine
+        assert_eq!(vote(&harness, &session.token, &channel, &message.id, &[]).await, Status::NoContent);
+        assert_eq!(vote(&harness, &session.token, &channel, &message.id, &["0"]).await, Status::NoContent);
+
+        // given: neither changed nor taken back
+        for answers in [&["1"][..], &[]] {
+            assert_eq!(
+                vote(&harness, &session.token, &channel, &message.id, answers).await,
+                Status::BadRequest
+            );
+        }
+        let poll = poll_of(&harness, &message.id).await;
+        assert!(poll.answers[0].votes.contains(&user.id) && poll.answers[1].votes.is_empty());
+    }
+
+    #[rocket::async_test]
     async fn only_the_author_closes_and_then_no_votes() {
         let harness = TestHarness::new().await;
         let (channel, owner, message, server) = poll_message(&harness, false).await;

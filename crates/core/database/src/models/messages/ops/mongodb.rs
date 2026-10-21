@@ -308,6 +308,11 @@ impl AbstractMessages for MongoDb {
                     "_id": id,
                     "poll": { "$exists": true },
                     "poll.closed": { "$ne": true },
+                    // final votes: only a user who has not voted yet
+                    "$or": [
+                        { "poll.final_votes": { "$ne": true } },
+                        { "poll.answers.votes": { "$ne": user } },
+                    ],
                 },
                 vec![doc! {
                     "$set": {

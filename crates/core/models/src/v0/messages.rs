@@ -181,6 +181,9 @@ auto_derived!(
         /// Whether the poll takes no more votes
         #[serde(skip_serializing_if = "crate::if_false", default)]
         pub closed: bool,
+        /// Whether a vote, once given, can be neither changed nor taken back
+        #[serde(skip_serializing_if = "crate::if_false", default)]
+        pub final_votes: bool,
     }
 
     /// One answer of a poll (dur.io fork)
@@ -206,6 +209,9 @@ auto_derived!(
         /// Whether a user may pick more than one answer
         #[serde(default)]
         pub multiple: bool,
+        /// Whether a vote, once given, can be neither changed nor taken back
+        #[serde(default)]
+        pub final_votes: bool,
     }
 
     /// The answers a user picks in a poll; empty takes the vote back (dur.io fork)
