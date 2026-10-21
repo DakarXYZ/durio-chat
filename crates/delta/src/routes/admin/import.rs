@@ -8,11 +8,16 @@
 //! author's original id, the name and avatar on the message): no user, no profile, no
 //! interaction. Imported messages carry `imported`; no events, pushes, mentions or
 //! unreads are made, clients see them when they load the channel.
+//!
+//! Link previews come separately and may come later (a debugging aid without a UI): the
+//! source's own previews, which outlive the dead links, set on messages imported before.
 use std::collections::{HashMap, HashSet};
 
 use iso8601_timestamp::Timestamp;
+use revolt_config::config;
 use revolt_database::{
-    util::reference::Reference, Channel, Database, File, Message, PartialChannel, Session, User,
+    util::reference::Reference, Channel, Database, File, Message, Metadata, PartialChannel,
+    PartialMessage, Session, User,
 };
 use revolt_models::v0;
 use revolt_result::{create_error, Result};
@@ -31,6 +36,13 @@ const MAX_ATTACHMENTS: usize = 10;
 const MAX_REPLIES: usize = 5;
 /// Longest source id of a message or author
 const MAX_ORIGINAL_ID: usize = 64;
+/// Most previews of an imported message (Discord allows 10)
+const MAX_EMBEDS: usize = 10;
+/// Longest preview title, description, site name and address
+const MAX_EMBED_TITLE: usize = 256;
+const MAX_EMBED_DESCRIPTION: usize = 2000;
+const MAX_EMBED_SITE_NAME: usize = 100;
+const MAX_EMBED_URL: usize = 2000;
 
 /// Id with the time `timestamp_ms` whose randomness comes from a hash of `key`
 fn derived_id(timestamp_ms: u64, key: &str) -> String {
@@ -277,6 +289,243 @@ pub async fn import_messages(
         imported,
         skipped: ids.len() - imported,
     }))
+}
+
+/// # Import Link Previews
+///
+/// Set the link previews of messages imported before, up to 100 messages at a time
+/// (dur.io fork, elevated instance admins only, no UI). The previews of a message are
+/// replaced; files of previews must be uploaded to autumn first (`attachments`).
+#[openapi(tag = "Admin")]
+#[post("/import/channels/<target>/embeds", data = "<data>")]
+pub async fn import_embeds(
+    db: &State<Database>,
+    user: User,
+    session: Session,
+    target: Reference<'_>,
+    data: Json<v0::DataImportEmbeds>,
+) -> Result<Json<v0::ImportEmbedsResult>> {
+    require_elevated_admin(&user, &session).await?;
+
+    let data = data.into_inner();
+    data.validate().map_err(|error| {
+        create_error!(FailedValidation {
+            error: error.to_string()
+        })
+    })?;
+    check_source(&data.source)?;
+
+    let channel = target.as_channel(db).await?;
+    if !matches!(channel, Channel::TextChannel { .. }) {
+        return Err(create_error!(InvalidOperation));
+    }
+
+    let mut planned = Vec::with_capacity(data.messages.len());
+    for message in &data.messages {
+        check_original_id(&message.original_id)?;
+        if message.embeds.len() > MAX_EMBEDS {
+            return Err(invalid("more than 10 embeds"));
+        }
+        for embed in &message.embeds {
+            check_embed(embed)?;
+        }
+        let id = message_id(&data.source, &message.original_id, &message.timestamp)?;
+        planned.push((id, message));
+    }
+
+    let ids: Vec<String> = planned.iter().map(|(id, _)| id.clone()).collect();
+    let found: HashMap<String, Message> = db
+        .fetch_messages_by_id(&ids)
+        .await?
+        .into_iter()
+        .filter(|message| message.channel == channel.id() && message.imported.is_some())
+        .map(|message| (message.id.clone(), message))
+        .collect();
+
+    let autumn = config().await.hosts.autumn;
+    let mut updated = 0;
+    for (id, message) in planned {
+        if !found.contains_key(&id) {
+            continue;
+        }
+
+        let mut embeds = Vec::with_capacity(message.embeds.len());
+        for embed in &message.embeds {
+            embeds.push(build_embed(db, embed, &id, &user.id, &autumn).await?);
+        }
+
+        db.update_message(
+            &id,
+            &PartialMessage {
+                embeds: Some(embeds),
+                ..Default::default()
+            },
+            vec![],
+        )
+        .await?;
+        updated += 1;
+    }
+
+    log::info!(
+        "Admin {} set previews of {} imported messages in channel {}",
+        user.id,
+        updated,
+        channel.id()
+    );
+
+    Ok(Json(v0::ImportEmbedsResult {
+        updated,
+        missing: ids.len() - updated,
+    }))
+}
+
+/// Limits of an imported preview: something to show, short texts, web addresses
+fn check_embed(embed: &v0::ImportEmbed) -> Result<()> {
+    let too_long = |text: &Option<String>, max: usize| {
+        text.as_ref().is_some_and(|text| text.chars().count() > max)
+    };
+    if too_long(&embed.title, MAX_EMBED_TITLE)
+        || too_long(&embed.description, MAX_EMBED_DESCRIPTION)
+        || too_long(&embed.site_name, MAX_EMBED_SITE_NAME)
+        || too_long(&embed.colour, 32)
+    {
+        return Err(invalid("embed text too long"));
+    }
+    if let Some(url) = &embed.url {
+        check_web_url(url)?;
+    }
+    for media in [&embed.image, &embed.video].into_iter().flatten() {
+        match (&media.file, &media.url) {
+            (Some(file), None) => check_original_id(file)?,
+            (None, Some(url)) => check_web_url(url)?,
+            _ => return Err(invalid("embed media needs either a file or a url")),
+        }
+    }
+
+    let blank = |text: &Option<String>| text.as_ref().is_none_or(|text| text.trim().is_empty());
+    if blank(&embed.title)
+        && blank(&embed.description)
+        && embed.image.is_none()
+        && embed.video.is_none()
+    {
+        return Err(invalid("embed shows nothing"));
+    }
+    Ok(())
+}
+
+/// An http(s) address of reasonable length
+fn check_web_url(url: &str) -> Result<()> {
+    if url.len() <= MAX_EMBED_URL
+        && (url.starts_with("https://") || url.starts_with("http://"))
+        && !url.chars().any(char::is_whitespace)
+    {
+        Ok(())
+    } else {
+        Err(invalid("embed url must be an http(s) address"))
+    }
+}
+
+/// An imported preview as clients show it. Without any text it is just its video or
+/// picture; with text a website card. Uploaded files are claimed for the message (a file
+/// already claimed for it, from an earlier run, is fine) and linked on this server's autumn
+async fn build_embed(
+    db: &Database,
+    embed: &v0::ImportEmbed,
+    message: &str,
+    uploader: &str,
+    autumn: &str,
+) -> Result<v0::Embed> {
+    let mut image = None;
+    if let Some(media) = &embed.image {
+        let (url, size) = media_url(db, media, message, uploader, autumn).await?;
+        let (width, height) = size.unwrap_or((media.width, media.height));
+        image = Some(v0::Image {
+            url,
+            width,
+            height,
+            size: if media.small {
+                v0::ImageSize::Preview
+            } else {
+                v0::ImageSize::Large
+            },
+        });
+    }
+    let mut video = None;
+    if let Some(media) = &embed.video {
+        let (url, size) = media_url(db, media, message, uploader, autumn).await?;
+        let (width, height) = size.unwrap_or((media.width, media.height));
+        video = Some(v0::Video { url, width, height });
+    }
+
+    let text = |text: &Option<String>| {
+        text.as_ref()
+            .map(|text| text.trim().to_owned())
+            .filter(|text| !text.is_empty())
+    };
+    let (title, description, site_name) = (
+        text(&embed.title),
+        text(&embed.description),
+        text(&embed.site_name),
+    );
+
+    if title.is_none() && description.is_none() && site_name.is_none() {
+        if let Some(video) = video {
+            return Ok(v0::Embed::Video(video));
+        }
+        if let Some(mut image) = image {
+            image.size = v0::ImageSize::Large;
+            return Ok(v0::Embed::Image(image));
+        }
+    }
+
+    Ok(v0::Embed::Website(v0::WebsiteMetadata {
+        url: embed.url.clone(),
+        original_url: embed.url.clone(),
+        special: None,
+        title,
+        description,
+        image,
+        video,
+        site_name,
+        icon_url: None,
+        colour: text(&embed.colour),
+    }))
+}
+
+/// Address and, for an uploaded file, the dimensions autumn found
+async fn media_url(
+    db: &Database,
+    media: &v0::ImportEmbedMedia,
+    message: &str,
+    uploader: &str,
+    autumn: &str,
+) -> Result<(String, Option<(usize, usize)>)> {
+    let Some(file) = &media.file else {
+        return Ok((media.url.clone().unwrap_or_default(), None));
+    };
+
+    let file = match File::use_attachment(db, file, message, uploader).await {
+        Ok(file) => file,
+        Err(error) => db
+            .fetch_attachment("attachments", file)
+            .await
+            .ok()
+            .filter(|found| {
+                found
+                    .used_for
+                    .as_ref()
+                    .is_some_and(|used| used.id == message)
+            })
+            .ok_or(error)?,
+    };
+
+    let size = match file.metadata {
+        Metadata::Image { width, height, .. } | Metadata::Video { width, height } => {
+            Some((width as usize, height as usize))
+        }
+        _ => None,
+    };
+    Ok((format!("{autumn}/attachments/{}", file.id), size))
 }
 
 /// The avatar of a phantom author: the uploaded file, claimed for it the first time; later

@@ -290,6 +290,82 @@ auto_derived!(
         pub skipped: usize,
     }
 
+    /// Link previews for messages imported before, e.g. Discord's own previews from an export
+    /// (dur.io fork, instance admins); they replace the previews the messages have
+    #[cfg_attr(feature = "validator", derive(Validate))]
+    pub struct DataImportEmbeds {
+        /// Source the messages were imported from
+        #[cfg_attr(feature = "validator", validate(length(min = 1, max = 32)))]
+        pub source: String,
+        /// The messages, 1 to 100
+        #[cfg_attr(feature = "validator", validate(length(min = 1, max = 100)))]
+        pub messages: Vec<ImportMessageEmbeds>,
+    }
+
+    /// The previews of one imported message (dur.io fork)
+    pub struct ImportMessageEmbeds {
+        /// Id of the message in the source
+        pub original_id: String,
+        /// When it was sent, as given when it was imported
+        pub timestamp: Timestamp,
+        /// Its previews (up to 10; empty removes them)
+        #[serde(default)]
+        pub embeds: Vec<ImportEmbed>,
+    }
+
+    /// One preview: a card with a title, or just a picture or a video (dur.io fork)
+    pub struct ImportEmbed {
+        /// Address the preview is for
+        #[serde(default)]
+        pub url: Option<String>,
+        /// Title (up to 256 characters)
+        #[serde(default)]
+        pub title: Option<String>,
+        /// Description (up to 2000 characters)
+        #[serde(default)]
+        pub description: Option<String>,
+        /// Site name (up to 100 characters)
+        #[serde(default)]
+        pub site_name: Option<String>,
+        /// CSS colour, e.g. `#ff0000`
+        #[serde(default)]
+        pub colour: Option<String>,
+        /// Picture: a large one under the card, or a small one beside it
+        #[serde(default)]
+        pub image: Option<ImportEmbedMedia>,
+        /// Video
+        #[serde(default)]
+        pub video: Option<ImportEmbedMedia>,
+    }
+
+    /// The picture or video of an imported preview: a file uploaded to autumn with the tag
+    /// `attachments`, or an address on the web (dur.io fork)
+    pub struct ImportEmbedMedia {
+        /// Id of the uploaded file
+        #[serde(default)]
+        pub file: Option<String>,
+        /// Address of the picture or video, when no file
+        #[serde(default)]
+        pub url: Option<String>,
+        /// Width
+        #[serde(default)]
+        pub width: usize,
+        /// Height
+        #[serde(default)]
+        pub height: usize,
+        /// Small beside the card instead of large under it (pictures only)
+        #[serde(default)]
+        pub small: bool,
+    }
+
+    /// Result of an import of previews (dur.io fork)
+    pub struct ImportEmbedsResult {
+        /// Messages whose previews were set
+        pub updated: usize,
+        /// Messages not found among the imported messages of the channel
+        pub missing: usize,
+    }
+
     /// The answers a user picks in a poll; empty takes the vote back (dur.io fork)
     pub struct DataPollVote {
         /// Ids of the picked answers

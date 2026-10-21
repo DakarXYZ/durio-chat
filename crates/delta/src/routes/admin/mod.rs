@@ -47,7 +47,8 @@ pub fn routes() -> (Vec<Route>, OpenApi) {
         invites::create_invite,
         invites::fetch_invites,
         invites::revoke_invite,
-        import::import_messages
+        import::import_messages,
+        import::import_embeds
     ]
 }
 

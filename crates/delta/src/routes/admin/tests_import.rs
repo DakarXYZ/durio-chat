@@ -232,3 +232,137 @@ async fn bad_batches_change_nothing() {
     .await;
     assert_eq!(status, Status::NotFound);
 }
+
+#[rocket::async_test]
+async fn previews_are_set_on_imported_messages_only() {
+    let harness = TestHarness::new().await;
+    let (session, admin) = new_admin(&harness).await;
+    let (_, channels) = harness.new_server(&admin).await;
+    let channel = channels[0].id().to_string();
+
+    let message = |id: &str, content: &str| {
+        json!({
+            "original_id": id,
+            "timestamp": "2023-02-13T16:19:45.369+04:00",
+            "author": { "original_id": "42", "name": "CatPower" },
+            "content": content
+        })
+    };
+    let (status, body) = post(
+        &harness,
+        &session,
+        &format!("/admin/import/channels/{channel}/messages"),
+        json!({ "source": "discord", "messages": [
+            message("2001", "https://example.com/news"),
+            message("2002", "https://example.com/cat.png"),
+        ] }),
+    )
+    .await;
+    assert_eq!(status, Status::Ok, "{body}");
+
+    let picture = upload(&harness, &admin, "attachments").await;
+    let path = format!("/admin/import/channels/{channel}/embeds");
+    let previews = json!({ "source": "discord", "messages": [
+        {
+            "original_id": "2001",
+            "timestamp": "2023-02-13T16:19:45.369+04:00",
+            "embeds": [{
+                "url": "https://example.com/news",
+                "title": "News",
+                "description": "What happened",
+                "site_name": "Example",
+                "image": { "file": picture, "width": 640, "height": 360, "small": true }
+            }]
+        },
+        {
+            "original_id": "2002",
+            "timestamp": "2023-02-13T16:19:45.369+04:00",
+            "embeds": [{
+                "url": "https://example.com/cat.png",
+                "image": { "url": "https://example.com/cat.png", "width": 10, "height": 20 }
+            }]
+        },
+        {
+            "original_id": "9999",
+            "timestamp": "2023-02-13T16:19:45.369+04:00",
+            "embeds": [{ "title": "nobody" }]
+        }
+    ] });
+
+    let (_, plain_session, _) = new_plain_admin(&harness).await;
+    let (status, _) = post(&harness, &plain_session, &path, previews.clone()).await;
+    assert_eq!(status, Status::Forbidden);
+
+    let (status, body) = post(&harness, &session, &path, previews.clone()).await;
+    assert_eq!(status, Status::Ok, "{body}");
+    assert_eq!(body["updated"], 2);
+    assert_eq!(body["missing"], 1);
+
+    let mut messages = harness
+        .db
+        .fetch_messages(revolt_database::MessageQuery {
+            filter: revolt_database::MessageFilter {
+                channel: Some(channel.clone()),
+                author: None,
+                query: None,
+                pinned: None,
+            },
+            limit: Some(10),
+            time_period: revolt_database::MessageTimePeriod::Absolute {
+                before: None,
+                after: None,
+                sort: Some(revolt_models::v0::MessageSort::Oldest),
+            },
+        })
+        .await
+        .unwrap();
+    messages.retain(|message| message.imported.is_some());
+    messages.sort_by(|a, b| a.content.cmp(&b.content));
+    let (cat, news) = (&messages[0], &messages[1]);
+
+    let autumn = revolt_config::config().await.hosts.autumn;
+    match &news.embeds.as_ref().unwrap()[0] {
+        revolt_models::v0::Embed::Website(site) => {
+            assert_eq!(site.title.as_deref(), Some("News"));
+            assert_eq!(
+                site.original_url.as_deref(),
+                Some("https://example.com/news")
+            );
+            assert_eq!(site.site_name.as_deref(), Some("Example"));
+            let image = site.image.as_ref().unwrap();
+            assert_eq!(image.url, format!("{autumn}/attachments/{picture}"));
+            assert_eq!((image.width, image.height), (640, 360));
+            assert!(matches!(image.size, revolt_models::v0::ImageSize::Preview));
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(matches!(
+        &cat.embeds.as_ref().unwrap()[0],
+        revolt_models::v0::Embed::Image(image) if image.url == "https://example.com/cat.png"
+    ));
+    let stored = harness
+        .db
+        .fetch_attachment("attachments", &picture)
+        .await
+        .unwrap();
+    assert_eq!(stored.used_for.unwrap().id, news.id);
+
+    // again: the file is already the message's, the previews are replaced
+    let (status, body) = post(&harness, &session, &path, previews).await;
+    assert_eq!(status, Status::Ok, "{body}");
+    assert_eq!(body["updated"], 2);
+
+    // a preview that shows nothing is refused
+    let (status, _) = post(
+        &harness,
+        &session,
+        &path,
+        json!({ "source": "discord", "messages": [{
+            "original_id": "2001",
+            "timestamp": "2023-02-13T16:19:45.369+04:00",
+            "embeds": [{ "url": "https://example.com/news" }]
+        }] }),
+    )
+    .await;
+    assert_eq!(status, Status::BadRequest);
+}
