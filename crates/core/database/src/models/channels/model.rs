@@ -642,10 +642,16 @@ impl Channel {
                 default_permissions,
                 role_permissions,
                 voice,
+                last_message_id,
                 ..
             } => {
                 if let Some(v) = partial.name {
                     *name = v;
+                }
+
+                // dur.io: MongoDB sets it too (message import)
+                if let Some(v) = partial.last_message_id {
+                    last_message_id.replace(v);
                 }
 
                 if let Some(v) = partial.description {

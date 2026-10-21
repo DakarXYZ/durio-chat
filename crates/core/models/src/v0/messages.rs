@@ -46,6 +46,9 @@ auto_derived_partial!(
         /// Poll of this message (dur.io fork)
         #[serde(skip_serializing_if = "Option::is_none")]
         pub poll: Option<Poll>,
+        /// Where this message was imported from, if it was (dur.io fork)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub imported: Option<MessageImport>,
         /// System message
         #[serde(skip_serializing_if = "Option::is_none")]
         pub system: Option<SystemMessage>,
@@ -212,6 +215,79 @@ auto_derived!(
         /// Whether a vote, once given, can be neither changed nor taken back
         #[serde(default)]
         pub final_votes: bool,
+    }
+
+    /// Where an imported message came from (dur.io fork): its author is a phantom webhook
+    /// (`webhook` holds the original name and avatar), its id carries the original time
+    pub struct MessageImport {
+        /// Source of the import, e.g. `discord`
+        pub source: String,
+    }
+
+    /// Messages to import into a channel, oldest first (dur.io fork, instance admins)
+    #[cfg_attr(feature = "validator", derive(Validate))]
+    pub struct DataImportMessages {
+        /// Source of the import, e.g. `discord` (lowercase letters, digits, `-`)
+        #[cfg_attr(feature = "validator", validate(length(min = 1, max = 32)))]
+        pub source: String,
+        /// The messages, 1 to 100
+        #[cfg_attr(feature = "validator", validate(length(min = 1, max = 100)))]
+        pub messages: Vec<ImportMessage>,
+    }
+
+    /// One message to import (dur.io fork)
+    pub struct ImportMessage {
+        /// Id of the message in the source, unique within it
+        pub original_id: String,
+        /// When it was sent
+        pub timestamp: Timestamp,
+        /// When it was last edited
+        #[serde(default)]
+        pub edited: Option<Timestamp>,
+        /// Who sent it
+        pub author: ImportAuthor,
+        /// Text (up to 10000 characters)
+        #[serde(default)]
+        pub content: String,
+        /// Ids of files uploaded to autumn with the tag `attachments` (up to 10)
+        #[serde(default)]
+        pub attachments: Vec<String>,
+        /// The imported messages it replies to (up to 5)
+        #[serde(default)]
+        pub reply_to: Vec<ImportReply>,
+        /// Whether it was pinned
+        #[serde(default)]
+        pub pinned: bool,
+    }
+
+    /// An imported message replied to: its id is derived from both (dur.io fork)
+    pub struct ImportReply {
+        /// Id of the message in the source
+        pub original_id: String,
+        /// When it was sent, as given when it was imported
+        pub timestamp: Timestamp,
+    }
+
+    /// The original author of an imported message, shown as a phantom webhook (dur.io fork)
+    pub struct ImportAuthor {
+        /// Id of the author in the source
+        pub original_id: String,
+        /// Display name (1 to 32 characters)
+        pub name: String,
+        /// Id of a file uploaded to autumn with the tag `avatars`
+        #[serde(default)]
+        pub avatar: Option<String>,
+        /// Whether the author was a bot
+        #[serde(default)]
+        pub bot: bool,
+    }
+
+    /// Result of an import request (dur.io fork)
+    pub struct ImportMessagesResult {
+        /// Messages added now
+        pub imported: usize,
+        /// Messages that were already imported
+        pub skipped: usize,
     }
 
     /// The answers a user picks in a poll; empty takes the vote back (dur.io fork)

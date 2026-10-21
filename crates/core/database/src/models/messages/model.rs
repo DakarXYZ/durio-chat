@@ -46,6 +46,9 @@ auto_derived_partial!(
         /// Poll of this message (dur.io fork)
         #[serde(skip_serializing_if = "Option::is_none")]
         pub poll: Option<v0::Poll>,
+        /// Where this message was imported from (dur.io fork)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub imported: Option<v0::MessageImport>,
         /// System message
         #[serde(skip_serializing_if = "Option::is_none")]
         pub system: Option<SystemMessage>,
@@ -254,6 +257,7 @@ impl Default for Message {
             content: None,
             encrypted: None,
             poll: None,
+            imported: None,
             system: None,
             attachments: None,
             edited: None,

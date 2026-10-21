@@ -8,7 +8,8 @@
 //! TOTP on) allows them from the current session for `[api.admins] elevation_minutes`.
 //! The elevation is stored on the session, so it ends with it (logout, revoke).
 //!
-//! Admins also make registration invites (`/admin/invites`) for `invite_only` instances.
+//! Admins also make registration invites (`/admin/invites`) for `invite_only` instances
+//! and import message history from other chats (`/admin/import`).
 use iso8601_timestamp::Timestamp;
 use revolt_config::config;
 use revolt_database::{Session, User};
@@ -18,6 +19,7 @@ use rocket::Route;
 
 mod elevate;
 mod find_user;
+mod import;
 mod invites;
 mod session_revoke;
 mod sessions_fetch;
@@ -28,6 +30,8 @@ mod status;
 mod tests;
 #[cfg(test)]
 mod tests_elevation;
+#[cfg(test)]
+mod tests_import;
 #[cfg(test)]
 mod tests_invites;
 
@@ -42,7 +46,8 @@ pub fn routes() -> (Vec<Route>, OpenApi) {
         sessions_revoke_all::revoke_all_sessions,
         invites::create_invite,
         invites::fetch_invites,
-        invites::revoke_invite
+        invites::revoke_invite,
+        import::import_messages
     ]
 }
 

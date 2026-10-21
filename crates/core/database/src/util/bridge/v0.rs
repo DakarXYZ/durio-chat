@@ -542,6 +542,7 @@ impl crate::Message {
             content: crate::util::e2ee::legacy_content(self.content, self.encrypted.is_some()),
             encrypted: self.encrypted,
             poll: self.poll,
+            imported: self.imported,
             system: self.system.map(Into::into),
             attachments: self
                 .attachments
@@ -573,6 +574,7 @@ impl From<crate::PartialMessage> for PartialMessage {
             content: crate::util::e2ee::legacy_content(value.content, value.encrypted.is_some()),
             encrypted: value.encrypted,
             poll: value.poll,
+            imported: value.imported,
             system: value.system.map(Into::into),
             attachments: value
                 .attachments

@@ -2,7 +2,6 @@ use crate::{
     AppendMessage, FieldsMessage, Message, MessageQuery,
     PartialMessage, ReferenceDb,
 };
-use futures::future::try_join_all;
 use indexmap::IndexSet;
 use revolt_models::v0::Poll;
 use revolt_result::Result;
@@ -191,7 +190,9 @@ impl AbstractMessages for ReferenceDb {
 
     /// Fetch multiple messages by given IDs
     async fn fetch_messages_by_id(&self, ids: &[String]) -> Result<Vec<Message>> {
-        try_join_all(ids.iter().map(|id| self.fetch_message(id))).await
+        // like MongoDB's $in: the messages found, missing ids are no error
+        let messages = self.messages.lock().await;
+        Ok(ids.iter().filter_map(|id| messages.get(id).cloned()).collect())
     }
 
     /// Fetch the message an author sent to a channel with a nonce, newer than `after` (dur.io fork)
