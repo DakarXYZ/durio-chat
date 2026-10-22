@@ -208,3 +208,63 @@ pub async fn create_thumbnail(image: DynamicImage, tag: &str) -> Vec<u8> {
     let media = MediaImpl::from_config().await;
     media.create_thumbnail(image, tag)
 }
+
+/// The bytes a `Range: bytes=…` header asks for, as an inclusive range; `Err` if it
+/// cannot be served, `None` if the whole file is to be sent (no header, several ranges,
+/// another unit) (dur.io fork)
+pub fn requested_range(value: &str, len: usize) -> Option<std::result::Result<(usize, usize), ()>> {
+    let spec = value.trim().strip_prefix("bytes=")?;
+    if spec.contains(',') {
+        return None;
+    }
+
+    let (from, to) = spec.split_once('-')?;
+    let (from, to) = (from.trim(), to.trim());
+    let range = if from.is_empty() {
+        // the last `to` bytes
+        let suffix: usize = to.parse().ok()?;
+        if suffix == 0 || len == 0 {
+            return Some(Err(()));
+        }
+
+        (len.saturating_sub(suffix), len - 1)
+    } else {
+        let start: usize = from.parse().ok()?;
+        if start >= len {
+            return Some(Err(()));
+        }
+
+        let end = if to.is_empty() {
+            len - 1
+        } else {
+            to.parse::<usize>().ok()?.min(len - 1)
+        };
+
+        if start > end {
+            return Some(Err(()));
+        }
+
+        (start, end)
+    };
+
+    Some(Ok(range))
+}
+
+#[cfg(test)]
+mod range_tests {
+    use super::requested_range;
+
+    #[test]
+    fn ranges() {
+        assert_eq!(requested_range("bytes=0-99", 1000), Some(Ok((0, 99))));
+        assert_eq!(requested_range("bytes=500-", 1000), Some(Ok((500, 999))));
+        assert_eq!(requested_range("bytes=900-5000", 1000), Some(Ok((900, 999))));
+        assert_eq!(requested_range("bytes=-100", 1000), Some(Ok((900, 999))));
+        assert_eq!(requested_range("bytes=-5000", 1000), Some(Ok((0, 999))));
+        assert_eq!(requested_range("bytes=1000-", 1000), Some(Err(())));
+        assert_eq!(requested_range("bytes=5-1", 1000), Some(Err(())));
+        assert_eq!(requested_range("bytes=0-1,5-9", 1000), None);
+        assert_eq!(requested_range("items=0-1", 1000), None);
+        assert_eq!(requested_range("bytes=x-1", 1000), None);
+    }
+}

@@ -1,5 +1,12 @@
-use axum::{extract::Query, response::IntoResponse, routing::get, Json, Router};
+use axum::{
+    extract::Query,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
+    routing::get,
+    Json, Router,
+};
 use reqwest::header;
+use revolt_files::requested_range;
 use revolt_models::v0::Embed;
 use revolt_result::{create_error, Result};
 use serde::{Deserialize, Serialize};
@@ -57,16 +64,46 @@ struct UrlQuery {
         ("url" = String, Query, description = "URL to fetch")
     ),
 )]
-async fn proxy(Query(UrlQuery { url }): Query<UrlQuery>) -> Result<impl IntoResponse> {
+async fn proxy(
+    headers: HeaderMap,
+    Query(UrlQuery { url }): Query<UrlQuery>,
+) -> Result<Response> {
     Request::proxy_file(&url).await.map(|(content_type, data)| {
-        (
-            [
-                (header::CONTENT_TYPE, content_type),
-                (header::CONTENT_DISPOSITION, "inline".to_owned()),
-                (header::CACHE_CONTROL, CACHE_CONTROL.to_owned()),
-            ],
-            data,
-        )
+        let len = data.len();
+        // dur.io fork: a part of the file, so that players can seek
+        match headers
+            .get(header::RANGE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| requested_range(value, len))
+        {
+            Some(Ok((start, end))) => (
+                StatusCode::PARTIAL_CONTENT,
+                [
+                    (header::CONTENT_TYPE, content_type),
+                    (header::CONTENT_DISPOSITION, "inline".to_owned()),
+                    (header::CACHE_CONTROL, CACHE_CONTROL.to_owned()),
+                    (header::ACCEPT_RANGES, "bytes".to_owned()),
+                    (header::CONTENT_RANGE, format!("bytes {start}-{end}/{len}")),
+                ],
+                data[start..=end].to_vec(),
+            )
+                .into_response(),
+            Some(Err(())) => (
+                StatusCode::RANGE_NOT_SATISFIABLE,
+                [(header::CONTENT_RANGE, format!("bytes */{len}"))],
+            )
+                .into_response(),
+            None => (
+                [
+                    (header::CONTENT_TYPE, content_type),
+                    (header::CONTENT_DISPOSITION, "inline".to_owned()),
+                    (header::CACHE_CONTROL, CACHE_CONTROL.to_owned()),
+                    (header::ACCEPT_RANGES, "bytes".to_owned()),
+                ],
+                data,
+            )
+                .into_response(),
+        }
     })
 }
 

@@ -5,7 +5,7 @@ use std::{
 
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
-    http::{header, HeaderMap, Method},
+    http::{header, HeaderMap, Method, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
@@ -15,7 +15,7 @@ use lazy_static::lazy_static;
 use revolt_config::{config, report_internal_error};
 use revolt_database::{iso8601_timestamp::Timestamp, Database, FileHash, Metadata, User};
 use revolt_files::{
-    create_thumbnail, decode_image, fetch_from_s3, is_animated, upload_to_s3,
+    create_thumbnail, decode_image, fetch_from_s3, is_animated, requested_range, upload_to_s3,
     AUTHENTICATION_TAG_SIZE_BYTES,
 };
 use revolt_result::{create_error, Error, Result, ToRevoltError};
@@ -506,6 +506,7 @@ async fn fetch_preview(
 )]
 async fn fetch_file(
     State(db): State<Database>,
+    headers: HeaderMap,
     Path((tag, file_id, file_name)): Path<(Tag, String, String)>,
 ) -> Result<Response> {
     let tag: &'static str = tag.clone().into();
@@ -535,18 +536,51 @@ async fn fetch_file(
     }
 
     let hash = file.as_hash(&db).await?;
-    retrieve_file_by_hash(&hash).await.map(|data| {
-        (
+    retrieve_file_by_hash(&hash)
+        .await
+        .map(|data| ranged_response(&headers, hash.content_type, data))
+}
+
+/// An original file, or the part of it a `Range` header asks for, so that players can
+/// seek before the whole file arrives (dur.io fork)
+fn ranged_response(headers: &HeaderMap, content_type: String, data: Vec<u8>) -> Response {
+    let len = data.len();
+    let range = headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| requested_range(value, len));
+
+    match range {
+        Some(Ok((start, end))) => (
+            StatusCode::PARTIAL_CONTENT,
             [
-                (header::CONTENT_TYPE, hash.content_type),
+                (header::CONTENT_TYPE, content_type),
                 (header::CONTENT_DISPOSITION, "attachment".to_owned()),
                 (header::CACHE_CONTROL, CACHE_CONTROL.to_owned()),
+                (header::ACCEPT_RANGES, "bytes".to_owned()),
+                (header::CONTENT_RANGE, format!("bytes {start}-{end}/{len}")),
+            ],
+            data[start..=end].to_vec(),
+        )
+            .into_response(),
+        Some(Err(())) => (
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            [(header::CONTENT_RANGE, format!("bytes */{len}"))],
+        )
+            .into_response(),
+        None => (
+            [
+                (header::CONTENT_TYPE, content_type),
+                (header::CONTENT_DISPOSITION, "attachment".to_owned()),
+                (header::CACHE_CONTROL, CACHE_CONTROL.to_owned()),
+                (header::ACCEPT_RANGES, "bytes".to_owned()),
             ],
             data,
         )
-            .into_response()
-    })
+            .into_response(),
+    }
 }
+
 
 /// Fetch original file (Moderation)
 ///
