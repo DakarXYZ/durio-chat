@@ -28,7 +28,9 @@ pub async fn ack_server(user: &User, server: &Server, db: &Database, amqp: &AMQP
         .await
         .map_err(|_| create_error!(InternalError))?;
 
-    let channels = db.fetch_channels(&server.channels).await?;
+    let mut channels = db.fetch_channels(&server.channels).await?;
+    // dur.io fork: and the server's threads
+    channels.append(&mut db.fetch_threads(std::slice::from_ref(&server.id)).await?);
     let query = crate::util::permissions::DatabasePermissionQuery::new(db, user).server(server);
 
     for channel in channels {

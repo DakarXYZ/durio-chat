@@ -54,6 +54,8 @@ pub async fn create_invite(
     }
 
     let channel = target.as_channel(db).await?;
+    // dur.io fork: threads have their own edit route, no invites, voice, webhooks or overrides
+    super::threads::refuse_thread(&channel)?;
     let mut query = DatabasePermissionQuery::new(db, &user).channel(&channel);
     calculate_channel_permissions(&mut query)
         .await

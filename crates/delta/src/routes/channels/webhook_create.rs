@@ -33,6 +33,8 @@ pub async fn create_webhook(
     })?;
 
     let channel = channel_id.as_channel(db).await?;
+    // dur.io fork: threads have their own edit route, no invites, voice, webhooks or overrides
+    super::threads::refuse_thread(&channel)?;
 
     if !matches!(channel, Channel::TextChannel { .. } | Channel::Group { .. }) {
         return Err(create_error!(InvalidOperation));

@@ -41,6 +41,8 @@ pub async fn call(
     }
 
     let channel = target.as_channel(db).await?;
+    // dur.io fork: threads have their own edit route, no invites, voice, webhooks or overrides
+    super::threads::refuse_thread(&channel)?;
 
     let Some(voice_info) = channel.voice() else {
         return Err(create_error!(NotAVoiceChannel));

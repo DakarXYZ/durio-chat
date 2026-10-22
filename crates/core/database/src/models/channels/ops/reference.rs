@@ -4,6 +4,7 @@ use super::AbstractChannels;
 use crate::util::ChunkedDatabaseGenerator;
 use crate::ReferenceDb;
 use crate::{Channel, FieldsChannel, PartialChannel};
+use revolt_models::v0::ThreadInfo;
 use revolt_permissions::OverrideField;
 use revolt_result::Result;
 
@@ -221,5 +222,54 @@ impl AbstractChannels for ReferenceDb {
             _ => (),
         };
         Ok(())
+    }
+
+    /// Fetch the threads of the given servers (dur.io fork)
+    async fn fetch_threads(&self, server_ids: &[String]) -> Result<Vec<Channel>> {
+        let channels = self.channels.lock().await;
+        Ok(channels
+            .values()
+            .filter(|channel| {
+                channel.thread().is_some()
+                    && channel
+                        .server()
+                        .is_some_and(|server| server_ids.iter().any(|id| id == server))
+            })
+            .cloned()
+            .collect())
+    }
+
+    /// Fetch the threads of a channel (dur.io fork)
+    async fn fetch_channel_threads(&self, parent_id: &str) -> Result<Vec<Channel>> {
+        let channels = self.channels.lock().await;
+        Ok(channels
+            .values()
+            .filter(|channel| channel.thread().is_some_and(|thread| thread.parent == parent_id))
+            .cloned()
+            .collect())
+    }
+
+    /// Count messages in a thread (dur.io fork)
+    async fn bump_thread(
+        &self,
+        channel_id: &str,
+        by: i64,
+        unarchive: bool,
+    ) -> Result<Option<ThreadInfo>> {
+        let mut channels = self.channels.lock().await;
+        if let Some(Channel::TextChannel {
+            thread: Some(thread),
+            ..
+        }) = channels.get_mut(channel_id)
+        {
+            thread.message_count = (thread.message_count as i64 + by).max(0) as u64;
+            if unarchive {
+                thread.archived = false;
+            }
+
+            Ok(Some(thread.clone()))
+        } else {
+            Ok(None)
+        }
     }
 }

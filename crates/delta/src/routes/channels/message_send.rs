@@ -276,6 +276,7 @@ mod test {
             voice: None,
             slowmode: None,
             encryption: None,
+            thread: None,
         };
         locked_channel
             .update(&harness.db, partial, vec![])

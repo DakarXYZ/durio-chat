@@ -5,7 +5,8 @@ use crate::{
 };
 use bson::{Bson, Document};
 use futures::StreamExt;
-use mongodb::options::ReadConcern;
+use mongodb::options::{ReadConcern, ReturnDocument};
+use revolt_models::v0::ThreadInfo;
 use revolt_permissions::OverrideField;
 use revolt_result::Result;
 
@@ -346,6 +347,62 @@ impl AbstractChannels for MongoDb {
                 .map(|_| ())
                 .map_err(|_| create_database_error!("update_one", "channels"))
         }
+    }
+
+    /// Fetch the threads of the given servers (dur.io fork)
+    async fn fetch_threads(&self, server_ids: &[String]) -> Result<Vec<Channel>> {
+        query!(
+            self,
+            find,
+            COL,
+            doc! {
+                "channel_type": "TextChannel",
+                "server": { "$in": server_ids },
+                "thread": { "$exists": true }
+            }
+        )
+    }
+
+    /// Fetch the threads of a channel (dur.io fork)
+    async fn fetch_channel_threads(&self, parent_id: &str) -> Result<Vec<Channel>> {
+        query!(
+            self,
+            find,
+            COL,
+            doc! {
+                "channel_type": "TextChannel",
+                "thread.parent": parent_id
+            }
+        )
+    }
+
+    /// Count messages in a thread (dur.io fork)
+    async fn bump_thread(
+        &self,
+        channel_id: &str,
+        by: i64,
+        unarchive: bool,
+    ) -> Result<Option<ThreadInfo>> {
+        let mut set = doc! {
+            "thread.message_count": {
+                "$max": [0, { "$add": [{ "$ifNull": ["$thread.message_count", 0] }, by] }]
+            }
+        };
+
+        if unarchive {
+            set.insert("thread.archived", false);
+        }
+
+        Ok(self
+            .col::<Channel>(COL)
+            .find_one_and_update(
+                doc! { "_id": channel_id, "thread": { "$exists": true } },
+                vec![doc! { "$set": set }],
+            )
+            .return_document(ReturnDocument::After)
+            .await
+            .map_err(|_| create_database_error!("find_one_and_update", COL))?
+            .and_then(|channel| channel.thread().cloned()))
     }
 }
 

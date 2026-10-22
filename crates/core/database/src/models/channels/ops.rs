@@ -1,6 +1,7 @@
 use crate::{
     revolt_result::Result, util::ChunkedDatabaseGenerator, Channel, FieldsChannel, PartialChannel,
 };
+use revolt_models::v0::ThreadInfo;
 use revolt_permissions::OverrideField;
 
 #[cfg(feature = "mongodb")]
@@ -72,4 +73,19 @@ pub trait AbstractChannels: Sync + Send {
         channel_id: &str,
         message_id: Option<&str>,
     ) -> Result<()>;
+
+    /// Fetch the threads of the given servers (dur.io fork)
+    async fn fetch_threads(&self, server_ids: &[String]) -> Result<Vec<Channel>>;
+
+    /// Fetch the threads of a channel (dur.io fork)
+    async fn fetch_channel_threads(&self, parent_id: &str) -> Result<Vec<Channel>>;
+
+    /// Count `by` more (or fewer) messages in a thread, bringing it back from the
+    /// archive when `unarchive`; the thread as it is now, `None` if it is not one (dur.io fork)
+    async fn bump_thread(
+        &self,
+        channel_id: &str,
+        by: i64,
+        unarchive: bool,
+    ) -> Result<Option<ThreadInfo>>;
 }

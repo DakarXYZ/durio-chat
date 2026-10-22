@@ -49,6 +49,12 @@ auto_derived_partial!(
         /// Where this message was imported from, if it was (dur.io fork)
         #[serde(skip_serializing_if = "Option::is_none")]
         pub imported: Option<MessageImport>,
+        /// Id of the thread started from this message (dur.io fork)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub thread: Option<String>,
+        /// Set when a moderator hid this message behind a spoiler (dur.io fork)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub spoiler: Option<MessageSpoiler>,
         /// System message
         #[serde(skip_serializing_if = "Option::is_none")]
         pub system: Option<SystemMessage>,
@@ -151,6 +157,9 @@ auto_derived!(
         /// End-to-end encryption was enabled (dur.io fork)
         #[serde(rename = "encryption_enabled")]
         EncryptionEnabled { by: String },
+        /// A thread was started without a message to hang off (dur.io fork)
+        #[serde(rename = "thread_created")]
+        ThreadCreated { by: String, name: String },
     }
 
     /// Name and / or avatar override information
@@ -170,6 +179,31 @@ auto_derived!(
         #[serde(skip_serializing_if = "Option::is_none")]
         #[validate(length(min = 1, max = 128), regex = "RE_COLOUR")]
         pub colour: Option<String>,
+    }
+
+    /// What a message is hidden behind (dur.io fork)
+    #[derive(Copy)]
+    pub enum SpoilerKind {
+        /// "Spoiler alert!"
+        #[serde(rename = "spoiler")]
+        Spoiler,
+        /// Not safe for work
+        #[serde(rename = "nsfw")]
+        Nsfw,
+    }
+
+    /// A moderator hid a message behind a spoiler (dur.io fork)
+    pub struct MessageSpoiler {
+        /// What it is hidden behind
+        pub kind: SpoilerKind,
+        /// Id of the user who hid it
+        pub by: String,
+    }
+
+    /// Hide a message behind a spoiler (dur.io fork)
+    pub struct DataMessageSpoiler {
+        /// What to hide it behind
+        pub kind: SpoilerKind,
     }
 
     /// Poll attached to a message (dur.io fork)
@@ -615,6 +649,8 @@ auto_derived!(
     /// Optional fields on message
     pub enum FieldsMessage {
         Pinned,
+        Thread,
+        Spoiler,
     }
 );
 
@@ -684,6 +720,7 @@ impl From<SystemMessage> for String {
             SystemMessage::MessageUnpinned { .. } => "Message unpinned.".to_string(),
             SystemMessage::CallStarted { .. } => "Call started.".to_string(),
             SystemMessage::EncryptionEnabled { .. } => "End-to-end encryption enabled.".to_string(),
+            SystemMessage::ThreadCreated { name, .. } => format!("Started a thread: {name}"),
         }
     }
 }

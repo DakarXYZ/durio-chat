@@ -120,6 +120,10 @@ auto_derived!(
             /// The channel's slowmode delay in seconds
             #[serde(skip_serializing_if = "Option::is_none")]
             slowmode: Option<u64>,
+
+            /// Set when this channel is a thread of another channel (dur.io fork)
+            #[serde(skip_serializing_if = "Option::is_none", default)]
+            thread: Option<v0::ThreadInfo>,
         },
     }
 
@@ -160,6 +164,8 @@ auto_derived!(
         pub slowmode: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub encryption: Option<v0::ChannelEncryption>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub thread: Option<v0::ThreadInfo>,
     }
 
     /// Optional fields on channel object
@@ -222,6 +228,7 @@ impl Channel {
                 nsfw: data.nsfw.unwrap_or(false),
                 voice: data.voice.map(|voice| voice.into()),
                 slowmode: None,
+                thread: None,
             },
             v0::LegacyServerChannelType::Voice => Channel::TextChannel {
                 id: id.clone(),
@@ -235,6 +242,7 @@ impl Channel {
                 nsfw: data.nsfw.unwrap_or(false),
                 voice: Some(data.voice.unwrap_or_default().into()),
                 slowmode: None,
+                thread: None,
             },
         };
 
@@ -450,6 +458,14 @@ impl Channel {
         }
     }
 
+    /// What makes this channel a thread, if it is one (dur.io fork)
+    pub fn thread(&self) -> Option<&v0::ThreadInfo> {
+        match self {
+            Channel::TextChannel { thread, .. } => thread.as_ref(),
+            _ => None,
+        }
+    }
+
     /// Clone this channel's server id
     pub fn server(&self) -> Option<&str> {
         match self {
@@ -643,10 +659,15 @@ impl Channel {
                 role_permissions,
                 voice,
                 last_message_id,
+                thread,
                 ..
             } => {
                 if let Some(v) = partial.name {
                     *name = v;
+                }
+
+                if let Some(v) = partial.thread {
+                    thread.replace(v);
                 }
 
                 // dur.io: MongoDB sets it too (message import)
@@ -762,10 +783,15 @@ impl Channel {
                 nsfw,
                 voice,
                 slowmode,
+                thread,
                 ..
             } => {
                 if partial.name.is_some() {
                     before.name = Some(name.clone());
+                };
+
+                if partial.thread.is_some() {
+                    before.thread = thread.clone();
                 };
 
                 if partial.description.is_some() || remove.contains(&FieldsChannel::Description) {
@@ -919,6 +945,9 @@ impl Channel {
 
     /// Delete a channel
     pub async fn delete(&self, db: &Database) -> Result<()> {
+        // dur.io fork: threads go with their channel
+        self.delete_threads(db).await?;
+
         let id = self.id().to_string();
         EventV1::ChannelDelete { id: id.clone() }.p(id).await;
         // TODO: missing functionality:

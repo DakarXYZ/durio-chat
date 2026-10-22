@@ -28,6 +28,8 @@ pub async fn set_default_channel_permissions(
     let data = data.into_inner();
 
     let mut channel = target.as_channel(db).await?;
+    // dur.io fork: threads have their own edit route, no invites, voice, webhooks or overrides
+    super::threads::refuse_thread(&channel)?;
     let mut query = DatabasePermissionQuery::new(db, &user).channel(&channel);
     let permissions = calculate_channel_permissions(&mut query).await;
 

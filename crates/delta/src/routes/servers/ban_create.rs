@@ -82,7 +82,16 @@ pub async fn ban(
         if seconds > 0 {
             let threshold_time = SystemTime::now() - Duration::from_secs(seconds as u64);
 
-            Message::bulk_delete_by_author_since(db, &server.channels, target.id, threshold_time)
+            // dur.io fork: and the server's threads
+            let mut channels = server.channels.clone();
+            channels.extend(
+                db.fetch_threads(std::slice::from_ref(&server.id))
+                    .await?
+                    .iter()
+                    .map(|thread| thread.id().to_string()),
+            );
+
+            Message::bulk_delete_by_author_since(db, &channels, target.id, threshold_time)
                 .await?;
         }
     }

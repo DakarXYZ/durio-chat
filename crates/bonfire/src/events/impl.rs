@@ -142,6 +142,8 @@ impl State {
         // Fetch DMs and server channels.
         let mut channels = db.find_direct_messages(&user.id).await?;
         channels.append(&mut db.fetch_channels(&channel_ids).await?);
+        // dur.io fork: threads are not in the servers' channel lists
+        channels.append(&mut db.fetch_threads(&server_ids).await?);
 
         // Filter server channels by permission.
         let channels = self.cache.filter_accessible_channels(db, channels).await;
@@ -335,6 +337,15 @@ impl State {
 
     /// Re-determine the currently accessible server channels
     pub async fn recalculate_server(&mut self, db: &Database, id: &str, event: &mut EventV1) {
+        // dur.io fork: threads are not in the server's channel list
+        let thread_ids = db
+            .fetch_threads(&[id.to_string()])
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|thread| thread.id().to_string())
+            .collect::<Vec<String>>();
+
         if let Some(server) = self.cache.servers.get(id) {
             let mut channel_ids = HashSet::new();
             let mut added_channels = vec![];
@@ -353,7 +364,12 @@ impl State {
                 }
             }
 
-            let known_ids = server.channels.iter().cloned().collect::<HashSet<String>>();
+            let known_ids = server
+                .channels
+                .iter()
+                .cloned()
+                .chain(thread_ids)
+                .collect::<HashSet<String>>();
 
             let mut bulk_events = vec![];
 
@@ -399,6 +415,23 @@ impl State {
                     v.push(new_event);
                 }
             }
+        }
+    }
+
+    /// Unsubscribe from a server's channels and threads (dur.io fork: threads are not in
+    /// the server's channel list)
+    async fn forget_server_channels(&mut self, server_id: &str) {
+        let ids = self
+            .cache
+            .channels
+            .iter()
+            .filter(|(_, channel)| channel.server() == Some(server_id))
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<String>>();
+
+        for id in ids {
+            self.remove_subscription(&id).await;
+            self.cache.channels.remove(&id);
         }
     }
 
@@ -467,6 +500,12 @@ impl State {
 
         match event {
             EventV1::ChannelCreate(channel) => {
+                // dur.io fork: a new thread goes to the whole server; only those who see its channel get it
+                let created: Channel = channel.clone().into();
+                if created.thread().is_some() && !self.cache.can_view_channel(db, &created).await {
+                    return false;
+                }
+
                 let id = channel.id().to_string();
                 self.insert_subscription(id.clone()).await;
 
@@ -479,6 +518,15 @@ impl State {
             EventV1::ChannelUpdate {
                 id, data, clear, ..
             } => {
+                // dur.io fork: threads take the overrides of their channel
+                if data.role_permissions.is_some() || data.default_permissions.is_some() {
+                    queue_server = self
+                        .cache
+                        .channels
+                        .get(id)
+                        .and_then(|channel| channel.server().map(str::to_string));
+                }
+
                 let could_view: bool = if let Some(channel) = self.cache.channels.get(id) {
                     self.cache.can_view_channel(db, channel).await
                 } else {
@@ -586,11 +634,8 @@ impl State {
                     self.remove_subscription(id).await;
                     self.remove_active_server(id).await;
 
-                    if let Some(server) = self.cache.servers.remove(id) {
-                        for channel in &server.channels {
-                            self.remove_subscription(channel).await;
-                            self.cache.channels.remove(channel);
-                        }
+                    if self.cache.servers.remove(id).is_some() {
+                        self.forget_server_channels(id).await;
                     }
                     self.cache.members.remove(id);
                 }
@@ -598,11 +643,8 @@ impl State {
             EventV1::ServerDelete { id } => {
                 self.remove_subscription(id).await;
 
-                if let Some(server) = self.cache.servers.remove(id) {
-                    for channel in &server.channels {
-                        self.remove_subscription(channel).await;
-                        self.cache.channels.remove(channel);
-                    }
+                if self.cache.servers.remove(id).is_some() {
+                    self.forget_server_channels(id).await;
                 }
                 self.cache.members.remove(id);
             }

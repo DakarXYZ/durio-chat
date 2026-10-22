@@ -49,6 +49,12 @@ auto_derived_partial!(
         /// Where this message was imported from (dur.io fork)
         #[serde(skip_serializing_if = "Option::is_none")]
         pub imported: Option<v0::MessageImport>,
+        /// Id of the thread started from this message (dur.io fork)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub thread: Option<String>,
+        /// Set when a moderator hid this message behind a spoiler (dur.io fork)
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub spoiler: Option<v0::MessageSpoiler>,
         /// System message
         #[serde(skip_serializing_if = "Option::is_none")]
         pub system: Option<SystemMessage>,
@@ -128,6 +134,9 @@ auto_derived!(
         /// End-to-end encryption was enabled (dur.io fork)
         #[serde(rename = "encryption_enabled")]
         EncryptionEnabled { by: String },
+        /// A thread was started without a message to hang off (dur.io fork)
+        #[serde(rename = "thread_created")]
+        ThreadCreated { by: String, name: String },
     }
 
     /// Name and / or avatar override information
@@ -218,6 +227,8 @@ auto_derived!(
     /// Optional fields on message
     pub enum FieldsMessage {
         Pinned,
+        Thread,
+        Spoiler,
     }
 );
 
@@ -258,6 +269,8 @@ impl Default for Message {
             encrypted: None,
             poll: None,
             imported: None,
+            thread: None,
+            spoiler: None,
             system: None,
             attachments: None,
             edited: None,
@@ -769,6 +782,11 @@ impl Message {
         )
         .await?;
 
+        // dur.io fork: threads count their messages
+        if channel.thread().is_some() {
+            Channel::count_thread_messages(db, channel.id(), 1).await;
+        }
+
         let is_dm_or_group = matches!(
             channel,
             Channel::DirectMessage { .. } | Channel::Group { .. }
@@ -936,6 +954,7 @@ impl Message {
                             }
                             v0::SystemMessage::CallStarted { by, .. } => users.push(by.clone()),
                             v0::SystemMessage::EncryptionEnabled { by } => users.push(by.clone()),
+                            v0::SystemMessage::ThreadCreated { by, .. } => users.push(by.clone()),
                         }
                     }
                     users
@@ -1164,6 +1183,11 @@ impl Message {
                 }
                 _ => (),
             }
+
+            // dur.io fork: threads count their messages
+            if channel.thread().is_some() {
+                Channel::count_thread_messages(db, channel.id(), -1).await;
+            }
         }
 
         EventV1::MessageDelete {
@@ -1186,6 +1210,10 @@ impl Message {
             .collect::<Vec<String>>();
 
         db.delete_messages(channel, &valid_ids).await?;
+
+        // dur.io fork: threads count their messages
+        Channel::count_thread_messages(db, channel, -(valid_ids.len() as i64)).await;
+
         EventV1::BulkMessageDelete {
             channel: channel.to_string(),
             ids: valid_ids,
@@ -1208,6 +1236,10 @@ impl Message {
 
         for (channel_id, message_ids) in deleted_groups {
             if !message_ids.is_empty() {
+                // dur.io fork: threads count their messages
+                Channel::count_thread_messages(db, &channel_id, -(message_ids.len() as i64))
+                    .await;
+
                 EventV1::BulkMessageDelete {
                     channel: channel_id.clone(),
                     ids: message_ids,
@@ -1270,6 +1302,8 @@ impl Message {
     pub fn remove_field(&mut self, field: &FieldsMessage) {
         match field {
             FieldsMessage::Pinned => self.pinned = None,
+            FieldsMessage::Thread => self.thread = None,
+            FieldsMessage::Spoiler => self.spoiler = None,
         }
     }
 }

@@ -122,7 +122,54 @@ auto_derived!(
             /// The channel's slowmode delay in seconds
             #[serde(skip_serializing_if = "Option::is_none")]
             slowmode: Option<u64>,
+
+            /// Set when this channel is a thread of another channel (dur.io fork)
+            #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none", default))]
+            thread: Option<ThreadInfo>,
         },
+    }
+
+    /// What makes a server channel a thread (dur.io fork)
+    ///
+    /// A thread is not in the server's channel list; it takes the permissions
+    /// of its parent channel.
+    pub struct ThreadInfo {
+        /// Id of the channel the thread belongs to
+        pub parent: String,
+        /// Id of the message in the parent channel the thread hangs off
+        pub message: String,
+        /// Id of the user who started the thread
+        pub owner: String,
+        /// Whether the thread was archived; a new message in it brings it back
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "crate::if_false", default))]
+        pub archived: bool,
+        /// Number of messages in the thread
+        #[cfg_attr(feature = "serde", serde(default))]
+        pub message_count: u64,
+    }
+
+    /// Start a thread (dur.io fork)
+    #[cfg_attr(feature = "validator", derive(validator::Validate))]
+    pub struct DataCreateThread {
+        /// Thread name
+        #[cfg_attr(feature = "validator", validate(length(min = 1, max = 100)))]
+        pub name: String,
+        /// Id of the message in the channel to start the thread from;
+        /// without one the thread hangs off a new system message
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none", default))]
+        pub message: Option<String>,
+    }
+
+    /// Rename or archive a thread (dur.io fork)
+    #[cfg_attr(feature = "validator", derive(validator::Validate))]
+    pub struct DataEditThread {
+        /// Thread name
+        #[cfg_attr(feature = "validator", validate(length(min = 1, max = 100)))]
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none", default))]
+        pub name: Option<String>,
+        /// Whether the thread is archived
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none", default))]
+        pub archived: Option<bool>,
     }
 
     /// Voice information for a channel
@@ -164,6 +211,8 @@ auto_derived!(
         pub slowmode: Option<u64>,
         #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
         pub encryption: Option<ChannelEncryption>,
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+        pub thread: Option<ThreadInfo>,
     }
 
     /// Optional fields on channel object

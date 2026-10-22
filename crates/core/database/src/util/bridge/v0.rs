@@ -253,6 +253,7 @@ impl From<crate::Channel> for Channel {
                 nsfw,
                 voice,
                 slowmode,
+                thread,
             } => Channel::TextChannel {
                 id,
                 server,
@@ -265,6 +266,7 @@ impl From<crate::Channel> for Channel {
                 nsfw,
                 voice: voice.map(|voice| voice.into()),
                 slowmode,
+                thread,
             },
         }
     }
@@ -323,6 +325,7 @@ impl From<Channel> for crate::Channel {
                 nsfw,
                 voice,
                 slowmode,
+                thread,
             } => crate::Channel::TextChannel {
                 id,
                 server,
@@ -335,6 +338,7 @@ impl From<Channel> for crate::Channel {
                 nsfw,
                 voice: voice.map(|voice| voice.into()),
                 slowmode,
+                thread,
             },
         }
     }
@@ -356,6 +360,7 @@ impl From<crate::PartialChannel> for PartialChannel {
             voice: value.voice.map(|voice| voice.into()),
             slowmode: value.slowmode,
             encryption: value.encryption,
+            thread: value.thread,
         }
     }
 }
@@ -376,6 +381,7 @@ impl From<PartialChannel> for crate::PartialChannel {
             voice: value.voice.map(|voice| voice.into()),
             slowmode: value.slowmode,
             encryption: value.encryption,
+            thread: value.thread,
         }
     }
 }
@@ -543,6 +549,8 @@ impl crate::Message {
             encrypted: self.encrypted,
             poll: self.poll,
             imported: self.imported,
+            thread: self.thread,
+            spoiler: self.spoiler,
             system: self.system.map(Into::into),
             attachments: self
                 .attachments
@@ -575,6 +583,8 @@ impl From<crate::PartialMessage> for PartialMessage {
             encrypted: value.encrypted,
             poll: value.poll,
             imported: value.imported,
+            thread: value.thread,
+            spoiler: value.spoiler,
             system: value.system.map(Into::into),
             attachments: value
                 .attachments
@@ -617,6 +627,7 @@ impl From<crate::SystemMessage> for SystemMessage {
                 Self::CallStarted { by, finished_at }
             }
             crate::SystemMessage::EncryptionEnabled { by } => Self::EncryptionEnabled { by },
+            crate::SystemMessage::ThreadCreated { by, name } => Self::ThreadCreated { by, name },
         }
     }
 }
@@ -1489,6 +1500,8 @@ impl From<crate::FieldsMessage> for FieldsMessage {
     fn from(value: crate::FieldsMessage) -> Self {
         match value {
             crate::FieldsMessage::Pinned => FieldsMessage::Pinned,
+            crate::FieldsMessage::Thread => FieldsMessage::Thread,
+            crate::FieldsMessage::Spoiler => FieldsMessage::Spoiler,
         }
     }
 }
@@ -1496,6 +1509,8 @@ impl From<FieldsMessage> for crate::FieldsMessage {
     fn from(value: FieldsMessage) -> Self {
         match value {
             FieldsMessage::Pinned => crate::FieldsMessage::Pinned,
+            FieldsMessage::Thread => crate::FieldsMessage::Thread,
+            FieldsMessage::Spoiler => crate::FieldsMessage::Spoiler,
         }
     }
 }

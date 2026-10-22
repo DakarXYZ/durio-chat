@@ -18,6 +18,8 @@ pub struct DatabasePermissionQuery<'a> {
     channel: Option<Cow<'a, Channel>>,
     server: Option<Cow<'a, Server>>,
     member: Option<Cow<'a, Member>>,
+    /// dur.io fork: the parent of a thread, fetched once (`Some(None)`: not a thread)
+    parent: Option<Option<Channel>>,
 
     // flag_known_relationship: Option<&'a RelationshipStatus>,
     cached_user_permission: Option<PermissionValue>,
@@ -226,21 +228,17 @@ impl PermissionQuery for DatabasePermissionQuery<'_> {
     /// Get the default channel permissions
     /// Group channel defaults should be mapped to an allow-only override
     async fn get_default_channel_permissions(&mut self) -> Override {
-        if let Some(channel) = &self.channel {
+        self.load_thread_parent().await;
+        if let Some(channel) = self.overrides_channel() {
             match channel {
-                Cow::Borrowed(Channel::Group { permissions, .. })
-                | Cow::Owned(Channel::Group { permissions, .. }) => Override {
+                Channel::Group { permissions, .. } => Override {
                     allow: permissions.unwrap_or(*DEFAULT_PERMISSION_DIRECT_MESSAGE as i64) as u64,
                     deny: 0,
                 },
-                Cow::Borrowed(Channel::TextChannel {
+                Channel::TextChannel {
                     default_permissions,
                     ..
-                })
-                | Cow::Owned(Channel::TextChannel {
-                    default_permissions,
-                    ..
-                }) => default_permissions.unwrap_or_default().into(),
+                } => default_permissions.unwrap_or_default().into(),
                 _ => Default::default(),
             }
         } else {
@@ -250,14 +248,12 @@ impl PermissionQuery for DatabasePermissionQuery<'_> {
 
     /// Get the ordered role overrides (from lowest to highest) for this member in this channel
     async fn get_our_channel_role_overrides(&mut self) -> Vec<Override> {
-        if let Some(channel) = &self.channel {
+        self.load_thread_parent().await;
+        if let Some(channel) = self.overrides_channel() {
             match channel {
-                Cow::Borrowed(Channel::TextChannel {
+                Channel::TextChannel {
                     role_permissions, ..
-                })
-                | Cow::Owned(Channel::TextChannel {
-                    role_permissions, ..
-                }) => {
+                } => {
                     if let Some(server) = &self.server {
                         let member_roles = self
                             .member
@@ -385,6 +381,7 @@ impl<'a> DatabasePermissionQuery<'a> {
             channel: None,
             server: None,
             member: None,
+            parent: None,
 
             cached_mutual_connection: None,
             cached_user_permission: None,
@@ -429,7 +426,28 @@ impl<'a> DatabasePermissionQuery<'a> {
     pub fn channel(self, channel: &'a Channel) -> DatabasePermissionQuery<'a> {
         DatabasePermissionQuery {
             channel: Some(Cow::Borrowed(channel)),
+            parent: None,
             ..self
+        }
+    }
+
+    /// dur.io fork: fetch the parent channel once if the channel is a thread
+    async fn load_thread_parent(&mut self) {
+        if self.parent.is_none() {
+            let parent = match self.channel.as_deref().and_then(Channel::thread) {
+                Some(thread) => self.database.fetch_channel(&thread.parent).await.ok(),
+                None => None,
+            };
+
+            self.parent = Some(parent);
+        }
+    }
+
+    /// dur.io fork: the channel whose overrides apply (a thread takes its parent's)
+    fn overrides_channel(&self) -> Option<&Channel> {
+        match &self.parent {
+            Some(Some(parent)) => Some(parent),
+            _ => self.channel.as_deref(),
         }
     }
 

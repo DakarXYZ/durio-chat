@@ -22,10 +22,12 @@ mod message_query;
 mod message_react;
 mod message_search;
 mod message_send;
+mod message_spoiler;
 mod message_unpin;
 mod message_unreact;
 mod permissions_set;
 mod permissions_set_default;
+mod threads;
 mod voice_join;
 mod voice_stop_ring;
 mod webhook_create;
@@ -61,7 +63,12 @@ pub fn routes() -> (Vec<Route>, OpenApi) {
         message_clear_reactions::clear_reactions,
         message_poll::vote_poll,
         message_poll::close_poll,
+        message_spoiler::spoiler_message,
+        message_spoiler::unspoiler_message,
         webhook_create::create_webhook,
         webhook_fetch_all::fetch_webhooks,
+        threads::create_thread,
+        threads::fetch_threads,
+        threads::edit_thread,
     ]
 }
