@@ -129,6 +129,17 @@ auto_derived!(
             /// a message; kept forever when unset (dur.io fork)
             #[serde(skip_serializing_if = "Option::is_none", default)]
             thread_auto_delete: Option<u32>,
+
+            /// Id of the member who made this channel for themselves and runs it (dur.io fork)
+            #[serde(skip_serializing_if = "Option::is_none", default)]
+            owner: Option<String>,
+
+            /// Permissions of single members in this channel (dur.io fork)
+            #[serde(
+                default = "HashMap::<String, OverrideField>::new",
+                skip_serializing_if = "HashMap::<String, OverrideField>::is_empty"
+            )]
+            user_permissions: HashMap<String, OverrideField>,
         },
     }
 
@@ -173,6 +184,8 @@ auto_derived!(
         pub thread: Option<v0::ThreadInfo>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub thread_auto_delete: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub user_permissions: Option<HashMap<String, OverrideField>>,
     }
 
     /// Optional fields on channel object
@@ -215,6 +228,17 @@ impl Channel {
         data: v0::DataCreateServerChannel,
         update_server: bool,
     ) -> Result<Channel> {
+        Self::create_owned_server_channel(db, server, data, update_server, None).await
+    }
+
+    /// Create a server channel, made by a member for themselves when `owner` is set (dur.io fork)
+    pub async fn create_owned_server_channel(
+        db: &Database,
+        server: &mut Server,
+        data: v0::DataCreateServerChannel,
+        update_server: bool,
+        owner: Option<String>,
+    ) -> Result<Channel> {
         let config = config().await;
         if server.channels.len() > config.features.limits.global.server_channels {
             return Err(create_error!(TooManyChannels {
@@ -238,6 +262,8 @@ impl Channel {
                 slowmode: None,
                 thread: None,
                 thread_auto_delete: None,
+                owner,
+                user_permissions: HashMap::new(),
             },
             v0::LegacyServerChannelType::Voice => Channel::TextChannel {
                 id: id.clone(),
@@ -253,6 +279,8 @@ impl Channel {
                 slowmode: None,
                 thread: None,
                 thread_auto_delete: None,
+                owner: None,
+                user_permissions: HashMap::new(),
             },
         };
 
@@ -476,6 +504,14 @@ impl Channel {
         }
     }
 
+    /// The member who made this server channel for themselves (dur.io fork)
+    pub fn user_channel_owner(&self) -> Option<&str> {
+        match self {
+            Channel::TextChannel { owner, .. } => owner.as_deref(),
+            _ => None,
+        }
+    }
+
     /// Clone this channel's server id
     pub fn server(&self) -> Option<&str> {
         match self {
@@ -679,10 +715,20 @@ impl Channel {
                 last_message_id,
                 thread,
                 thread_auto_delete,
+                owner,
+                user_permissions,
                 ..
             } => {
                 if let Some(v) = partial.name {
                     *name = v;
+                }
+
+                if let Some(v) = partial.owner {
+                    owner.replace(v);
+                }
+
+                if let Some(v) = partial.user_permissions {
+                    *user_permissions = v;
                 }
 
                 if let Some(v) = partial.thread {
@@ -808,10 +854,15 @@ impl Channel {
                 slowmode,
                 thread,
                 thread_auto_delete,
+                user_permissions,
                 ..
             } => {
                 if partial.name.is_some() {
                     before.name = Some(name.clone());
+                };
+
+                if partial.user_permissions.is_some() {
+                    before.user_permissions = Some(user_permissions.clone());
                 };
 
                 if partial.thread_auto_delete.is_some()

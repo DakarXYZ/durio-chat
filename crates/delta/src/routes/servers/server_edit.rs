@@ -47,6 +47,7 @@ pub async fn edit(
         && data.flags.is_none()
         && data.analytics.is_none()
         && data.discoverable.is_none()
+        && data.user_channel_limit.is_none()
         && data.owner.is_none()
         && data.remove.is_empty()
     {
@@ -57,6 +58,7 @@ pub async fn edit(
         || data.banner.is_some()
         || data.system_messages.is_some()
         || data.analytics.is_some()
+        || data.user_channel_limit.is_some()
         || !data.remove.is_empty()
     {
         permissions.throw_if_lacking_channel_permission(ChannelPermission::ManageServer)?;
@@ -96,6 +98,7 @@ pub async fn edit(
         // nsfw,
         discoverable,
         analytics,
+        user_channel_limit,
         owner,
         remove,
     } = data;
@@ -109,6 +112,7 @@ pub async fn edit(
         // nsfw,
         discoverable,
         analytics,
+        user_channel_limit,
         owner: owner.clone(),
         ..Default::default()
     };

@@ -255,6 +255,8 @@ impl From<crate::Channel> for Channel {
                 slowmode,
                 thread,
                 thread_auto_delete,
+                owner,
+                user_permissions,
             } => Channel::TextChannel {
                 id,
                 server,
@@ -269,6 +271,8 @@ impl From<crate::Channel> for Channel {
                 slowmode,
                 thread,
                 thread_auto_delete,
+                owner,
+                user_permissions,
             },
         }
     }
@@ -329,6 +333,8 @@ impl From<Channel> for crate::Channel {
                 slowmode,
                 thread,
                 thread_auto_delete,
+                owner,
+                user_permissions,
             } => crate::Channel::TextChannel {
                 id,
                 server,
@@ -343,6 +349,8 @@ impl From<Channel> for crate::Channel {
                 slowmode,
                 thread,
                 thread_auto_delete,
+                owner,
+                user_permissions,
             },
         }
     }
@@ -366,6 +374,7 @@ impl From<crate::PartialChannel> for PartialChannel {
             encryption: value.encryption,
             thread: value.thread,
             thread_auto_delete: value.thread_auto_delete,
+            user_permissions: value.user_permissions,
         }
     }
 }
@@ -388,6 +397,7 @@ impl From<PartialChannel> for crate::PartialChannel {
             encryption: value.encryption,
             thread: value.thread,
             thread_auto_delete: value.thread_auto_delete,
+            user_permissions: value.user_permissions,
         }
     }
 }
@@ -868,6 +878,7 @@ impl crate::Server {
             flags: self.flags.unwrap_or_default() as u32,
             nsfw: self.nsfw,
             analytics: self.analytics,
+            user_channel_limit: self.user_channel_limit,
             discoverable: self.discoverable,
             approximate_member_count,
         }
@@ -897,6 +908,7 @@ impl From<Server> for crate::Server {
             flags: Some(value.flags as i32),
             nsfw: value.nsfw,
             analytics: value.analytics,
+            user_channel_limit: value.user_channel_limit,
             discoverable: value.discoverable,
         }
     }
@@ -923,6 +935,7 @@ impl From<crate::PartialServer> for PartialServer {
             flags: value.flags.map(|v| v as u32),
             nsfw: value.nsfw,
             analytics: value.analytics,
+            user_channel_limit: value.user_channel_limit,
             discoverable: value.discoverable,
             approximate_member_count: None,
         }
@@ -950,6 +963,7 @@ impl From<PartialServer> for crate::PartialServer {
             flags: value.flags.map(|v| v as i32),
             nsfw: value.nsfw,
             analytics: value.analytics,
+            user_channel_limit: value.user_channel_limit,
             discoverable: value.discoverable,
         }
     }

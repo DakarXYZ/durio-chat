@@ -286,6 +286,7 @@ mod test {
             encryption: None,
             thread: None,
             thread_auto_delete: None,
+            user_permissions: None,
         };
         locked_channel
             .update(&harness.db, partial, vec![])

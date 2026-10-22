@@ -26,6 +26,7 @@ mod message_spoiler;
 mod message_unpin;
 mod message_unreact;
 mod permissions_set;
+mod permissions_set_user;
 mod permissions_set_default;
 mod threads;
 mod voice_join;
@@ -57,6 +58,8 @@ pub fn routes() -> (Vec<Route>, OpenApi) {
         voice_join::call,
         voice_stop_ring::stop_ring,
         permissions_set::set_role_permissions,
+        permissions_set_user::set_user_permissions,
+        permissions_set_user::remove_user_permissions,
         permissions_set_default::set_default_channel_permissions,
         message_react::react_message,
         message_unreact::unreact_message,

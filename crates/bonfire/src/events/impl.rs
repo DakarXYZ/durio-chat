@@ -519,7 +519,10 @@ impl State {
                 id, data, clear, ..
             } => {
                 // dur.io fork: threads take the overrides of their channel
-                if data.role_permissions.is_some() || data.default_permissions.is_some() {
+                if data.role_permissions.is_some()
+                    || data.default_permissions.is_some()
+                    || data.user_permissions.is_some()
+                {
                     queue_server = self
                         .cache
                         .channels

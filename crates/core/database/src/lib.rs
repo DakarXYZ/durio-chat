@@ -226,6 +226,10 @@ pub use amqp::amqp::AMQP;
 pub mod voice;
 
 /// Utility function to check if a boolean value is false
+pub fn if_zero_u32(t: &u32) -> bool {
+    t == &0
+}
+
 pub fn if_false(t: &bool) -> bool {
     !t
 }

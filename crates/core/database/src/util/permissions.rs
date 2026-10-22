@@ -285,6 +285,34 @@ impl PermissionQuery for DatabasePermissionQuery<'_> {
         }
     }
 
+    /// Our own override in this server channel; a thread has its channel's (dur.io fork)
+    async fn get_our_channel_user_override(&mut self) -> Option<Override> {
+        self.load_thread_parent().await;
+        match self.overrides_channel() {
+            Some(Channel::TextChannel {
+                user_permissions, ..
+            }) => user_permissions
+                .get(&self.perspective.id)
+                .map(|permission| (*permission).into()),
+            _ => None,
+        }
+    }
+
+    /// Is this server channel (or a thread's channel) one a member made for themselves?
+    async fn is_user_channel(&mut self) -> bool {
+        self.load_thread_parent().await;
+        self.overrides_channel()
+            .is_some_and(|channel| channel.user_channel_owner().is_some())
+    }
+
+    /// Did we make this server channel (or a thread's channel) for ourselves?
+    async fn do_we_own_the_server_channel(&mut self) -> bool {
+        self.load_thread_parent().await;
+        self.overrides_channel()
+            .and_then(|channel| channel.user_channel_owner())
+            .is_some_and(|owner| owner == self.perspective.id)
+    }
+
     /// Do we own this group or saved messages channel if it is one of those?
     async fn do_we_own_the_channel(&mut self) -> bool {
         if let Some(channel) = &self.channel {

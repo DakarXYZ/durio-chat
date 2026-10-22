@@ -20,6 +20,17 @@ async fn validate_user_permissions() {
 
     #[async_trait]
     impl PermissionQuery for Scenario {
+        async fn get_our_channel_user_override(&mut self) -> Option<Override> {
+            None
+        }
+
+        async fn is_user_channel(&mut self) -> bool {
+            false
+        }
+
+        async fn do_we_own_the_server_channel(&mut self) -> bool {
+            false
+        }
         async fn are_we_privileged(&mut self) -> bool {
             false
         }
@@ -117,6 +128,17 @@ async fn validate_group_permissions() {
 
     #[async_trait]
     impl PermissionQuery for Scenario {
+        async fn get_our_channel_user_override(&mut self) -> Option<Override> {
+            None
+        }
+
+        async fn is_user_channel(&mut self) -> bool {
+            false
+        }
+
+        async fn do_we_own_the_server_channel(&mut self) -> bool {
+            false
+        }
         async fn are_we_privileged(&mut self) -> bool {
             false
         }
@@ -221,6 +243,17 @@ async fn validate_server_permissions() {
 
     #[async_trait]
     impl PermissionQuery for Scenario {
+        async fn get_our_channel_user_override(&mut self) -> Option<Override> {
+            None
+        }
+
+        async fn is_user_channel(&mut self) -> bool {
+            false
+        }
+
+        async fn do_we_own_the_server_channel(&mut self) -> bool {
+            false
+        }
         async fn are_we_privileged(&mut self) -> bool {
             false
         }
@@ -326,6 +359,17 @@ async fn validate_timed_out_member() {
 
     #[async_trait]
     impl PermissionQuery for Scenario {
+        async fn get_our_channel_user_override(&mut self) -> Option<Override> {
+            None
+        }
+
+        async fn is_user_channel(&mut self) -> bool {
+            false
+        }
+
+        async fn do_we_own_the_server_channel(&mut self) -> bool {
+            false
+        }
         async fn are_we_privileged(&mut self) -> bool {
             false
         }
@@ -430,6 +474,17 @@ async fn validate_channel_default_below_server_roles() {
 
     #[async_trait]
     impl PermissionQuery for Scenario {
+        async fn get_our_channel_user_override(&mut self) -> Option<Override> {
+            None
+        }
+
+        async fn is_user_channel(&mut self) -> bool {
+            false
+        }
+
+        async fn do_we_own_the_server_channel(&mut self) -> bool {
+            false
+        }
         async fn are_we_privileged(&mut self) -> bool {
             false
         }

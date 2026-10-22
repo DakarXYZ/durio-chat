@@ -87,6 +87,8 @@ impl Channel {
                 message_count: 0,
             }),
             thread_auto_delete: None,
+            owner: None,
+            user_permissions: HashMap::new(),
         };
 
         db.insert_channel(&channel).await?;

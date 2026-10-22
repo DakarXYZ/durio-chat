@@ -1,7 +1,7 @@
 use crate::{
     ChannelPermission, ChannelType, PermissionQuery, PermissionValue, RelationshipStatus,
     UserPermission, ALLOW_IN_TIMEOUT, DEFAULT_PERMISSION_DIRECT_MESSAGE,
-    DEFAULT_PERMISSION_SAVED_MESSAGES, DEFAULT_PERMISSION_VIEW_ONLY,
+    DEFAULT_PERMISSION_SAVED_MESSAGES, DEFAULT_PERMISSION_VIEW_ONLY, USER_CHANNEL_OWNER,
 };
 
 /// Calculate permissions against a user
@@ -125,6 +125,29 @@ pub async fn calculate_channel_permissions<P: PermissionQuery>(query: &mut P) ->
 
                 for role_override in query.get_our_channel_role_overrides().await {
                     permissions.apply(role_override);
+                }
+
+                // dur.io fork: an override for this member alone
+                if let Some(user_override) = query.get_our_channel_user_override().await {
+                    permissions.apply(user_override);
+                }
+
+                // dur.io fork: a member's own channel is run by its maker, and the
+                // server's moderators keep there what they have on the server
+                if query.is_user_channel().await {
+                    if query.do_we_own_the_server_channel().await {
+                        permissions.allow(*USER_CHANNEL_OWNER);
+                    }
+
+                    let mut on_server =
+                        PermissionValue::from(query.get_default_server_permissions().await);
+                    for role_override in query.get_our_server_role_overrides().await {
+                        on_server.apply(role_override);
+                    }
+
+                    if on_server.has_channel_permission(ChannelPermission::ManageChannel) {
+                        permissions.allow(on_server.into_raw() | ChannelPermission::ViewChannel as u64);
+                    }
                 }
 
                 if !query.do_we_have_publish_overwrites().await {

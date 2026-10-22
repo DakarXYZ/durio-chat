@@ -131,6 +131,20 @@ auto_derived!(
             /// a message; kept forever when unset (dur.io fork)
             #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none", default))]
             thread_auto_delete: Option<u32>,
+
+            /// Id of the member who made this channel for themselves and runs it (dur.io fork)
+            #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none", default))]
+            owner: Option<String>,
+
+            /// Permissions of single members in this channel (dur.io fork)
+            #[cfg_attr(
+                feature = "serde",
+                serde(
+                    default = "HashMap::<String, OverrideField>::new",
+                    skip_serializing_if = "HashMap::<String, OverrideField>::is_empty"
+                )
+            )]
+            user_permissions: HashMap<String, OverrideField>,
         },
     }
 
@@ -227,6 +241,8 @@ auto_derived!(
         pub thread: Option<ThreadInfo>,
         #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
         pub thread_auto_delete: Option<u32>,
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+        pub user_permissions: Option<HashMap<String, OverrideField>>,
     }
 
     /// Optional fields on channel object

@@ -66,6 +66,10 @@ auto_derived_partial!(
         /// Whether this server should be publicly discoverable
         #[serde(skip_serializing_if = "crate::if_false", default)]
         pub discoverable: bool,
+
+        /// How many text channels of their own each member may make (dur.io fork)
+        #[serde(skip_serializing_if = "crate::if_zero_u32", default)]
+        pub user_channel_limit: u32,
     },
     "PartialServer"
 );
@@ -170,6 +174,7 @@ impl Server {
             banner: None,
             categories: None,
             discoverable: false,
+            user_channel_limit: 0,
             flags: None,
             icon: None,
             roles: HashMap::new(),
@@ -266,6 +271,7 @@ impl Server {
                 nsfw,
                 analytics,
                 discoverable,
+                user_channel_limit,
             )
         );
 

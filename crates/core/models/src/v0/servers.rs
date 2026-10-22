@@ -79,6 +79,13 @@ auto_derived_partial!(
         )]
         pub discoverable: bool,
 
+        /// How many text channels of their own each member may make (dur.io fork)
+        #[cfg_attr(
+            feature = "serde",
+            serde(skip_serializing_if = "crate::if_zero_u32", default)
+        )]
+        pub user_channel_limit: u32,
+
         /// Approximate amount of members in the server
         pub approximate_member_count: usize,
     },
@@ -261,6 +268,11 @@ auto_derived!(
         ///
         /// Must be enabled in order to show up on [Revolt Discover](https://rvlt.gg).
         pub analytics: Option<bool>,
+
+        /// How many text channels of their own each member may make, up to 3 (dur.io fork)
+        #[cfg_attr(feature = "validator", validate(range(min = 0, max = 3)))]
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none", default))]
+        pub user_channel_limit: Option<u32>,
 
         /// User id of the new owner
         pub owner: Option<String>,

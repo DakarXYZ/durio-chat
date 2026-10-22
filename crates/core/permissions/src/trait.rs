@@ -60,6 +60,15 @@ pub trait PermissionQuery {
     /// Do we own this group or saved messages channel if it is one of those?
     async fn do_we_own_the_channel(&mut self) -> bool;
 
+    /// Our own override in this server channel, if one was set for us (dur.io fork)
+    async fn get_our_channel_user_override(&mut self) -> Option<Override>;
+
+    /// Is this server channel one a member made for themselves? (dur.io fork)
+    async fn is_user_channel(&mut self) -> bool;
+
+    /// Did we make this server channel for ourselves? (dur.io fork)
+    async fn do_we_own_the_server_channel(&mut self) -> bool;
+
     /// Are we a recipient of this channel?
     async fn are_we_part_of_the_channel(&mut self) -> bool;
 

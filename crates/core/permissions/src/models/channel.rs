@@ -160,6 +160,22 @@ pub static DEFAULT_PERMISSION_SERVER: Lazy<u64> = Lazy::new(|| {
     )
 });
 
+/// What the member who made a channel of their own may do in it (dur.io fork):
+/// run its messages and who may see or write in it, not the server's members
+pub static USER_CHANNEL_OWNER: Lazy<u64> = Lazy::new(|| {
+    DEFAULT_PERMISSION_VIEW_ONLY.add(
+        ChannelPermission::SendMessage
+            + ChannelPermission::ManageMessages
+            + ChannelPermission::ManageChannel
+            + ChannelPermission::ManagePermissions
+            + ChannelPermission::InviteOthers
+            + ChannelPermission::SendEmbeds
+            + ChannelPermission::UploadFiles
+            + ChannelPermission::React
+            + ChannelPermission::BypassSlowmode,
+    )
+});
+
 pub static DEFAULT_WEBHOOK_PERMISSIONS: Lazy<u64> = Lazy::new(|| {
     ChannelPermission::SendMessage
         + ChannelPermission::SendEmbeds
