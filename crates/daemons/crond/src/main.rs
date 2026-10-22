@@ -49,5 +49,6 @@ async fn main() {
         cron_task_wrapper(acks::task, db.clone(), amqp.clone()),
         cron_task_wrapper(delete_expired_invites::task, db.clone(), amqp.clone()),
         cron_task_wrapper(prune_e2ee::task, db.clone(), amqp.clone()),
+        cron_task_wrapper(delete_inactive_threads::task, db.clone(), amqp.clone()),
     );
 }

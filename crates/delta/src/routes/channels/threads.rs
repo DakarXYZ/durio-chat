@@ -69,8 +69,9 @@ pub async fn fetch_threads(
 
 /// # Edit a Thread
 ///
-/// Rename or archive a thread. Its starter, or anyone with `ManageChannel`,
-/// may do so; a new message brings an archived thread back.
+/// Rename, archive or close a thread. Its starter, or anyone with
+/// `ManageChannel`, may do so; a new message brings an archived thread back,
+/// a closed one stays closed until opened again.
 #[openapi(tag = "Channel Information")]
 #[patch("/<target>/thread", data = "<data>")]
 pub async fn edit_thread(
@@ -105,8 +106,20 @@ pub async fn edit_thread(
         ..Default::default()
     };
 
+    let before = thread.clone();
     if let Some(archived) = data.archived {
         thread.archived = archived;
+    }
+
+    if let Some(locked) = data.locked {
+        thread.locked = locked;
+        thread.archived = locked;
+    }
+
+    // a closed thread is an archived one
+    thread.archived |= thread.locked;
+
+    if thread != before {
         partial.thread = Some(thread);
     }
 
@@ -129,7 +142,7 @@ pub fn refuse_thread(channel: &Channel) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use crate::{rocket, util::test::TestHarness};
-    use revolt_database::{Member, PartialChannel, util::reference::Reference};
+    use revolt_database::{Channel, Member, PartialChannel, util::reference::Reference};
     use revolt_models::v0;
     use revolt_permissions::{ChannelPermission, OverrideField};
     use rocket::http::{ContentType, Header, Status};
@@ -429,6 +442,153 @@ mod tests {
                 .as_channel(&harness.db)
                 .await
                 .is_err()
+        );
+    }
+
+    #[rocket::async_test]
+    async fn closed_threads_take_messages_from_moderators_only() {
+        let harness = TestHarness::new().await;
+        let (_, session, owner) = harness.new_user().await;
+        let (server, channels) = harness.new_server(&owner).await;
+        let parent = channels[0].id().to_string();
+        let token = session.token.to_string();
+
+        let (_, other_session, other) = harness.new_user().await;
+        Member::create(&harness.db, &server, &other, None)
+            .await
+            .unwrap();
+        let other_token = other_session.token.to_string();
+
+        let (_, thread) = post(
+            &harness,
+            &other_token,
+            format!("/channels/{parent}/threads"),
+            json!({ "name": "Question" }),
+        )
+        .await;
+        let id = thread.unwrap()["_id"].as_str().unwrap().to_string();
+
+        // the owner of the server closes the member's thread
+        assert_eq!(
+            patch(&harness, &token, &id, json!({ "locked": true })).await,
+            Status::Ok
+        );
+        let info = thread_of(&harness, &id).await;
+        assert!(info.locked && info.archived);
+
+        // the starter still writes, as does the moderator, and it stays closed
+        send(&harness, &other_token, &id, "thanks").await;
+        send(&harness, &token, &id, "closing this").await;
+        let info = thread_of(&harness, &id).await;
+        assert!(info.locked && info.archived);
+
+        // not unarchived behind the lock's back
+        assert_eq!(
+            patch(&harness, &other_token, &id, json!({ "archived": false })).await,
+            Status::Ok
+        );
+        assert!(thread_of(&harness, &id).await.archived);
+
+        // someone else may not write in it
+        let (_, third_session, third) = harness.new_user().await;
+        Member::create(&harness.db, &server, &third, None)
+            .await
+            .unwrap();
+        let (status, _) = post(
+            &harness,
+            &third_session.token,
+            format!("/channels/{id}/messages"),
+            json!({ "content": "me too" }),
+        )
+        .await;
+        assert_eq!(status, Status::Forbidden);
+
+        // open again
+        assert_eq!(
+            patch(&harness, &token, &id, json!({ "locked": false })).await,
+            Status::Ok
+        );
+        let info = thread_of(&harness, &id).await;
+        assert!(!info.locked && !info.archived);
+        send(&harness, &third_session.token, &id, "me too").await;
+    }
+
+    #[rocket::async_test]
+    async fn inactive_threads_are_deleted_when_the_channel_says_so() {
+        let harness = TestHarness::new().await;
+        let (_, session, user) = harness.new_user().await;
+        let (_, channels) = harness.new_server(&user).await;
+        let parent = channels[0].id().to_string();
+        let token = session.token.to_string();
+
+        let (_, thread) = post(
+            &harness,
+            &token,
+            format!("/channels/{parent}/threads"),
+            json!({ "name": "Old" }),
+        )
+        .await;
+        let id = thread.unwrap()["_id"].as_str().unwrap().to_string();
+        send(&harness, &token, &id, "last words").await;
+
+        let day = 24 * 60 * 60 * 1000;
+        let active_at = Reference::from_unchecked(&id)
+            .as_channel(&harness.db)
+            .await
+            .unwrap()
+            .thread_active_at()
+            .unwrap();
+
+        // kept forever by default
+        assert_eq!(
+            Channel::delete_inactive_threads(&harness.db, active_at + 400 * day)
+                .await
+                .unwrap(),
+            0
+        );
+
+        let response = harness
+            .client
+            .patch(format!("/channels/{parent}"))
+            .header(ContentType::JSON)
+            .header(Header::new("x-session-token", token.clone()))
+            .body(json!({ "thread_auto_delete": 3 }).to_string())
+            .dispatch()
+            .await;
+        assert_eq!(response.status(), Status::Ok);
+        let channel: v0::Channel = response.into_json().await.unwrap();
+        assert!(matches!(
+            channel,
+            v0::Channel::TextChannel {
+                thread_auto_delete: Some(3),
+                ..
+            }
+        ));
+
+        // two days in: kept; four days in: gone
+        assert_eq!(
+            Channel::delete_inactive_threads(&harness.db, active_at + 2 * day)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            Channel::delete_inactive_threads(&harness.db, active_at + 4 * day)
+                .await
+                .unwrap(),
+            1
+        );
+        assert!(
+            Reference::from_unchecked(&id)
+                .as_channel(&harness.db)
+                .await
+                .is_err()
+        );
+        assert!(
+            Reference::from_unchecked(&parent)
+                .as_channel(&harness.db)
+                .await
+                .is_ok()
         );
     }
 }

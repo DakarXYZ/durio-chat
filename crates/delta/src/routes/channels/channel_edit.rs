@@ -48,6 +48,7 @@ pub async fn edit(
         && data.owner.is_none()
         && data.voice.is_none()
         && data.slowmode.is_none()
+        && data.thread_auto_delete.is_none()
         && data.remove.is_empty()
     {
         return Ok(Json(channel.into()));
@@ -216,6 +217,7 @@ pub async fn edit(
             nsfw,
             voice,
             slowmode,
+            thread_auto_delete,
             ..
         } => {
             if data.remove.contains(&v0::FieldsChannel::Icon) {
@@ -237,6 +239,9 @@ pub async fn edit(
                     }
                     v0::FieldsChannel::Slowmode => {
                         slowmode.take();
+                    }
+                    v0::FieldsChannel::ThreadAutoDelete => {
+                        thread_auto_delete.take();
                     }
                     _ => {}
                 }
@@ -270,6 +275,11 @@ pub async fn edit(
             if let Some(new_slowmode) = data.slowmode {
                 *slowmode = Some(new_slowmode);
                 partial.slowmode = Some(new_slowmode);
+            }
+
+            if let Some(days) = data.thread_auto_delete {
+                *thread_auto_delete = Some(days);
+                partial.thread_auto_delete = Some(days);
             }
         }
         _ => return Err(create_error!(InvalidOperation)),

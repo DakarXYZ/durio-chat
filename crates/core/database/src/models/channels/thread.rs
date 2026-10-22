@@ -83,8 +83,10 @@ impl Channel {
                 message: anchor.id.clone(),
                 owner: by.id.clone(),
                 archived: false,
+                locked: false,
                 message_count: 0,
             }),
+            thread_auto_delete: None,
         };
 
         db.insert_channel(&channel).await?;
@@ -125,7 +127,7 @@ impl Channel {
     }
 
     /// Count `by` more (or fewer) messages in a thread; a new message brings it
-    /// back from the archive. Does nothing for other channels.
+    /// back from the archive, unless it was closed. Does nothing for other channels.
     pub async fn count_thread_messages(db: &Database, id: &str, by: i64) {
         if by == 0 {
             return;
@@ -143,6 +145,48 @@ impl Channel {
             .p(id.to_string())
             .await;
         }
+    }
+
+    /// When anyone last wrote in this thread (or started it), in Unix milliseconds
+    pub fn thread_active_at(&self) -> Option<u64> {
+        match self {
+            Channel::TextChannel {
+                id,
+                last_message_id,
+                thread: Some(_),
+                ..
+            } => Ulid::from_string(last_message_id.as_deref().unwrap_or(id))
+                .ok()
+                .map(|ulid| ulid.timestamp_ms()),
+            _ => None,
+        }
+    }
+
+    /// Delete the threads nobody wrote in for longer than their channel keeps
+    /// them (`thread_auto_delete` days); how many went
+    pub async fn delete_inactive_threads(db: &Database, now_ms: u64) -> Result<usize> {
+        let mut count = 0;
+        for channel in db.fetch_thread_auto_delete_channels().await? {
+            let Channel::TextChannel {
+                id,
+                thread_auto_delete: Some(days),
+                thread: None,
+                ..
+            } = &channel
+            else {
+                continue;
+            };
+
+            let cutoff = now_ms.saturating_sub(u64::from(*days) * 24 * 60 * 60 * 1000);
+            for thread in db.fetch_channel_threads(id).await? {
+                if thread.thread_active_at().is_some_and(|at| at < cutoff) {
+                    thread.delete(db).await?;
+                    count += 1;
+                }
+            }
+        }
+
+        Ok(count)
     }
 
     /// Clean up around a channel about to be deleted: a channel takes its threads

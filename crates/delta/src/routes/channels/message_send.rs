@@ -49,6 +49,14 @@ pub async fn message_send(
     let permissions = calculate_channel_permissions(&mut query).await;
     permissions.throw_if_lacking_channel_permission(ChannelPermission::SendMessage)?;
 
+    // dur.io fork: a closed thread takes messages from its starter and moderators only
+    if let Some(thread) = channel.thread()
+        && thread.locked
+        && thread.owner != user.id
+    {
+        permissions.throw_if_lacking_channel_permission(ChannelPermission::ManageChannel)?;
+    }
+
     // Verify permissions for masquerade
     if let Some(masq) = &data.masquerade {
         permissions.throw_if_lacking_channel_permission(ChannelPermission::Masquerade)?;
@@ -277,6 +285,7 @@ mod test {
             slowmode: None,
             encryption: None,
             thread: None,
+            thread_auto_delete: None,
         };
         locked_channel
             .update(&harness.db, partial, vec![])

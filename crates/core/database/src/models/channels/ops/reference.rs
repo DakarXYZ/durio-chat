@@ -249,6 +249,24 @@ impl AbstractChannels for ReferenceDb {
             .collect())
     }
 
+    /// Fetch the channels that delete their inactive threads (dur.io fork)
+    async fn fetch_thread_auto_delete_channels(&self) -> Result<Vec<Channel>> {
+        let channels = self.channels.lock().await;
+        Ok(channels
+            .values()
+            .filter(|channel| {
+                matches!(
+                    channel,
+                    Channel::TextChannel {
+                        thread_auto_delete: Some(_),
+                        ..
+                    }
+                )
+            })
+            .cloned()
+            .collect())
+    }
+
     /// Count messages in a thread (dur.io fork)
     async fn bump_thread(
         &self,
@@ -263,7 +281,7 @@ impl AbstractChannels for ReferenceDb {
         }) = channels.get_mut(channel_id)
         {
             thread.message_count = (thread.message_count as i64 + by).max(0) as u64;
-            if unarchive {
+            if unarchive && !thread.locked {
                 thread.archived = false;
             }
 

@@ -376,6 +376,19 @@ impl AbstractChannels for MongoDb {
         )
     }
 
+    /// Fetch the channels that delete their inactive threads (dur.io fork)
+    async fn fetch_thread_auto_delete_channels(&self) -> Result<Vec<Channel>> {
+        query!(
+            self,
+            find,
+            COL,
+            doc! {
+                "channel_type": "TextChannel",
+                "thread_auto_delete": { "$exists": true }
+            }
+        )
+    }
+
     /// Count messages in a thread (dur.io fork)
     async fn bump_thread(
         &self,
@@ -390,7 +403,10 @@ impl AbstractChannels for MongoDb {
         };
 
         if unarchive {
-            set.insert("thread.archived", false);
+            set.insert(
+                "thread.archived",
+                doc! { "$and": ["$thread.archived", { "$eq": ["$thread.locked", true] }] },
+            );
         }
 
         Ok(self

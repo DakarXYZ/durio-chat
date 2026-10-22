@@ -254,6 +254,7 @@ impl From<crate::Channel> for Channel {
                 voice,
                 slowmode,
                 thread,
+                thread_auto_delete,
             } => Channel::TextChannel {
                 id,
                 server,
@@ -267,6 +268,7 @@ impl From<crate::Channel> for Channel {
                 voice: voice.map(|voice| voice.into()),
                 slowmode,
                 thread,
+                thread_auto_delete,
             },
         }
     }
@@ -326,6 +328,7 @@ impl From<Channel> for crate::Channel {
                 voice,
                 slowmode,
                 thread,
+                thread_auto_delete,
             } => crate::Channel::TextChannel {
                 id,
                 server,
@@ -339,6 +342,7 @@ impl From<Channel> for crate::Channel {
                 voice: voice.map(|voice| voice.into()),
                 slowmode,
                 thread,
+                thread_auto_delete,
             },
         }
     }
@@ -361,6 +365,7 @@ impl From<crate::PartialChannel> for PartialChannel {
             slowmode: value.slowmode,
             encryption: value.encryption,
             thread: value.thread,
+            thread_auto_delete: value.thread_auto_delete,
         }
     }
 }
@@ -382,6 +387,7 @@ impl From<PartialChannel> for crate::PartialChannel {
             slowmode: value.slowmode,
             encryption: value.encryption,
             thread: value.thread,
+            thread_auto_delete: value.thread_auto_delete,
         }
     }
 }
@@ -394,6 +400,7 @@ impl From<FieldsChannel> for crate::FieldsChannel {
             FieldsChannel::DefaultPermissions => crate::FieldsChannel::DefaultPermissions,
             FieldsChannel::Voice => crate::FieldsChannel::Voice,
             FieldsChannel::Slowmode => crate::FieldsChannel::Slowmode,
+            FieldsChannel::ThreadAutoDelete => crate::FieldsChannel::ThreadAutoDelete,
         }
     }
 }
@@ -406,6 +413,7 @@ impl From<crate::FieldsChannel> for FieldsChannel {
             crate::FieldsChannel::DefaultPermissions => FieldsChannel::DefaultPermissions,
             crate::FieldsChannel::Voice => FieldsChannel::Voice,
             crate::FieldsChannel::Slowmode => FieldsChannel::Slowmode,
+            crate::FieldsChannel::ThreadAutoDelete => FieldsChannel::ThreadAutoDelete,
         }
     }
 }

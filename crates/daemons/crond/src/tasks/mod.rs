@@ -6,3 +6,4 @@ pub mod prune_e2ee;
 pub mod prune_members;
 pub mod prune_mfa_tickets;
 pub mod delete_expired_invites;
+pub mod delete_inactive_threads;

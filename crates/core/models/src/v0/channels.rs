@@ -126,6 +126,11 @@ auto_derived!(
             /// Set when this channel is a thread of another channel (dur.io fork)
             #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none", default))]
             thread: Option<ThreadInfo>,
+
+            /// Threads of this channel are deleted after this many days without
+            /// a message; kept forever when unset (dur.io fork)
+            #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none", default))]
+            thread_auto_delete: Option<u32>,
         },
     }
 
@@ -143,6 +148,10 @@ auto_derived!(
         /// Whether the thread was archived; a new message in it brings it back
         #[cfg_attr(feature = "serde", serde(skip_serializing_if = "crate::if_false", default))]
         pub archived: bool,
+        /// Whether the thread was closed: archived, and only its starter or
+        /// someone with `ManageChannel` may write in it or open it again
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "crate::if_false", default))]
+        pub locked: bool,
         /// Number of messages in the thread
         #[cfg_attr(feature = "serde", serde(default))]
         pub message_count: u64,
@@ -170,6 +179,9 @@ auto_derived!(
         /// Whether the thread is archived
         #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none", default))]
         pub archived: Option<bool>,
+        /// Close the thread (archived as well) or open it again
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none", default))]
+        pub locked: Option<bool>,
     }
 
     /// Voice information for a channel
@@ -213,6 +225,8 @@ auto_derived!(
         pub encryption: Option<ChannelEncryption>,
         #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
         pub thread: Option<ThreadInfo>,
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+        pub thread_auto_delete: Option<u32>,
     }
 
     /// Optional fields on channel object
@@ -222,6 +236,8 @@ auto_derived!(
         DefaultPermissions,
         Voice,
         Slowmode,
+        /// Keep threads forever (dur.io fork)
+        ThreadAutoDelete,
     }
 
     /// New webhook information
@@ -256,6 +272,11 @@ auto_derived!(
         /// The channel's slow mode delay in seconds, up to 6 hours
         #[cfg_attr(feature = "validator", validate(range(min = 0, max = 21600)))]
         pub slowmode: Option<u64>,
+
+        /// Delete threads after this many days without a message, up to a year (dur.io fork)
+        #[cfg_attr(feature = "validator", validate(range(min = 1, max = 365)))]
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none", default))]
+        pub thread_auto_delete: Option<u32>,
 
         /// Fields to remove from channel
         #[cfg_attr(feature = "serde", serde(default))]

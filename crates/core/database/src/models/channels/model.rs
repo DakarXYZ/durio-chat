@@ -124,6 +124,11 @@ auto_derived!(
             /// Set when this channel is a thread of another channel (dur.io fork)
             #[serde(skip_serializing_if = "Option::is_none", default)]
             thread: Option<v0::ThreadInfo>,
+
+            /// Threads of this channel are deleted after this many days without
+            /// a message; kept forever when unset (dur.io fork)
+            #[serde(skip_serializing_if = "Option::is_none", default)]
+            thread_auto_delete: Option<u32>,
         },
     }
 
@@ -166,6 +171,8 @@ auto_derived!(
         pub encryption: Option<v0::ChannelEncryption>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub thread: Option<v0::ThreadInfo>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub thread_auto_delete: Option<u32>,
     }
 
     /// Optional fields on channel object
@@ -175,6 +182,7 @@ auto_derived!(
         DefaultPermissions,
         Voice,
         Slowmode,
+        ThreadAutoDelete,
     }
 );
 
@@ -229,6 +237,7 @@ impl Channel {
                 voice: data.voice.map(|voice| voice.into()),
                 slowmode: None,
                 thread: None,
+                thread_auto_delete: None,
             },
             v0::LegacyServerChannelType::Voice => Channel::TextChannel {
                 id: id.clone(),
@@ -243,6 +252,7 @@ impl Channel {
                 voice: Some(data.voice.unwrap_or_default().into()),
                 slowmode: None,
                 thread: None,
+                thread_auto_delete: None,
             },
         };
 
@@ -586,6 +596,14 @@ impl Channel {
                 }
                 _ => {}
             },
+            FieldsChannel::ThreadAutoDelete => match self {
+                Self::TextChannel {
+                    thread_auto_delete, ..
+                } => {
+                    thread_auto_delete.take();
+                }
+                _ => {}
+            },
         }
     }
 
@@ -660,6 +678,7 @@ impl Channel {
                 voice,
                 last_message_id,
                 thread,
+                thread_auto_delete,
                 ..
             } => {
                 if let Some(v) = partial.name {
@@ -668,6 +687,10 @@ impl Channel {
 
                 if let Some(v) = partial.thread {
                     thread.replace(v);
+                }
+
+                if let Some(v) = partial.thread_auto_delete {
+                    thread_auto_delete.replace(v);
                 }
 
                 // dur.io: MongoDB sets it too (message import)
@@ -784,10 +807,17 @@ impl Channel {
                 voice,
                 slowmode,
                 thread,
+                thread_auto_delete,
                 ..
             } => {
                 if partial.name.is_some() {
                     before.name = Some(name.clone());
+                };
+
+                if partial.thread_auto_delete.is_some()
+                    || remove.contains(&FieldsChannel::ThreadAutoDelete)
+                {
+                    before.thread_auto_delete = *thread_auto_delete;
                 };
 
                 if partial.thread.is_some() {
@@ -966,6 +996,7 @@ impl IntoDocumentPath for FieldsChannel {
             FieldsChannel::DefaultPermissions => "default_permissions",
             FieldsChannel::Voice => "voice",
             FieldsChannel::Slowmode => "slowmode",
+            FieldsChannel::ThreadAutoDelete => "thread_auto_delete",
         })
     }
 }
