@@ -4,8 +4,8 @@ version = "0.16.0+fork.6"
 edition = "2024"
 license = "MIT"
 authors = ["izzy <me@insrt.uk>"]
-description = "Revolt Backend: Result and Error types"
-repository = "https://github.com/stoatchat/stoatchat"
+description = "dur.io backend: Result and Error types"
+repository = "https://github.com/DakarXYZ/durio-chat"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

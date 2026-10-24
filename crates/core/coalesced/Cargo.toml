@@ -4,8 +4,8 @@ version = "0.16.0+fork.6"
 edition = "2024"
 license = "MIT"
 authors = ["izzy <me@insrt.uk>", "Zomatree <me@zomatree.live>"]
-description = "Revolt Backend: Coalescion service"
-repository = "https://github.com/stoatchat/stoatchat"
+description = "dur.io backend: Coalescion service"
+repository = "https://github.com/DakarXYZ/durio-chat"
 
 [features]
 tokio = ["dep:tokio"]

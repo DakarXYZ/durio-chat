@@ -4,8 +4,8 @@ version = "0.16.0+fork.6"
 edition = "2024"
 license = "MIT"
 authors = ["Zomatree <me@zomatree.live>", "izzy <me@insrt.uk>"]
-description = "Revolt Backend: Message Parser"
-repository = "https://github.com/stoatchat/stoatchat"
+description = "dur.io backend: Message Parser"
+repository = "https://github.com/DakarXYZ/durio-chat"
 
 [dependencies]
 logos = { workspace = true }
